@@ -19,6 +19,38 @@ typedef struct serial_backend_data {
     int break_in_progress;
 } *Serial;
 
+const char* serial_enumerate(const int i) {
+    static char *device_names = NULL;
+    static char *ptrs[32]; // the strings beginning with "COM"
+
+    if (i == 0) { // refresh serial line list
+        sfree(device_names);
+
+        DWORD charCnt = 65535;
+        device_names = (char*)snmalloc(charCnt, sizeof(char));
+        charCnt = QueryDosDevice(NULL, device_names, charCnt);
+
+        char* ptr = device_names;
+        int ptrs_i = 0;
+
+        while (charCnt)
+        {
+            if (memcmp(ptr, "COM", 3) == 0)
+            {
+                // Add to list of com ports
+                ptrs[ptrs_i++] = ptr;
+            }
+            char *temp_ptr = strchr(ptr, 0);
+            charCnt -= (DWORD)((temp_ptr - ptr) / sizeof(char) + 1);
+            ptr = temp_ptr + 1;
+        }
+
+        ptrs[ptrs_i] = NULL; // last one of array shall be NULL
+    }
+
+    return ptrs[i];
+}
+
 static void serial_terminate(Serial serial)
 {
     if (serial->out) {
@@ -227,50 +259,16 @@ static const char *serial_init(void *frontend_handle, void **backend_handle,
     /*
      * Auto detect one available serial port, then use it.
      */
+        char *newLine = (char*)serial_enumerate(0);
+        if (NULL == newLine) return "No available COM port.";
+        
         {
-            char *msg = dupprintf("Start scanning serial port");
+            char *msg = dupprintf("Selecting %s", newLine);
             logevent(serial->frontend, msg);
         }
 
-        char *new_serial;
-        char *ptr;
-        DWORD new_serial_chars;
-
-        new_serial_chars = 65535;
-        new_serial = (char*)snmalloc(new_serial_chars, sizeof(char));
-        new_serial_chars = QueryDosDevice(NULL, new_serial, new_serial_chars);
-
-        ptr = new_serial;
-
-        while (new_serial_chars)
-        {
-            int port;
-            if (memcmp(ptr, "COM", 3) == 0)
-            {
-                // Add to list of com ports
-
-                {
-                    char *msg = dupprintf("Set serial device to %s", ptr);
-                    logevent(serial->frontend, msg);
-                }
-
-                sfree(serline);
-
-                serline = snmalloc(strlen(ptr), sizeof(char));
-                strcpy(serline, ptr);
-                break;
-            }
-            TCHAR *temp_ptr = strchr(ptr, 0);
-            new_serial_chars -= (DWORD)((temp_ptr - ptr) / sizeof(TCHAR) + 1);
-            ptr = temp_ptr + 1;
-        }
-
-        sfree(new_serial);
-
-        {
-            char *msg = dupprintf("Stop scanning serial port");
-            logevent(serial->frontend, msg);
-        }
+        sfree(serline);
+        serline = newLine;
     }
 
     {

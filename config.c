@@ -174,42 +174,13 @@ static void config_host_handler(union control *ctrl, void *dlg,
         char label_name[200] = "Serial line";
 
         {
-            char isFirst = 1;
-            char *new_serial;
-            char *ptr;
-            DWORD new_serial_chars;
-
-            new_serial_chars = 65535;
-            new_serial = (char*)snmalloc(new_serial_chars, sizeof(char));
-            new_serial_chars = QueryDosDevice(NULL, new_serial, new_serial_chars);
-
-            ptr = new_serial;
-
-            while (new_serial_chars)
-            {
-                if (memcmp(ptr, "COM", 3) == 0)
-                {
-                    // Add to list of com ports
-
-                    if (isFirst) {
-                        strcat(label_name, " (");
-                        isFirst = 0;
-                    }
-                    else {
-                        strcat(label_name, ", ");
-                    }
-
-                    strcat(label_name, ptr);
-                }
-                char *temp_ptr = strchr(ptr, 0);
-                new_serial_chars -= (DWORD)((temp_ptr - ptr) / sizeof(char) + 1);
-                ptr = temp_ptr + 1;
+            int com_count;
+            const char *com_name;
+            for (com_count = 0; (com_name = serial_enumerate(com_count)) != NULL; com_count++) {
+                strcat(label_name, (com_count == 0) ? " (COM" : ", ");
+                strcat(label_name, com_name + 3); // skip "COM"
             }
-
-            if (!isFirst) {
-                strcat(label_name, ")");
-            }
-            sfree(new_serial);
+            if (com_count > 0) strcat(label_name, ")");
         }
 
         dlg_label_change(ctrl, dlg, label_name);

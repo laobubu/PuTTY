@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <termios.h>
+#include <dirent.h>
 
 #include "putty.h"
 #include "tree234.h"
@@ -24,6 +25,44 @@ typedef struct serial_backend_data {
     int inbufsize;
     bufchain output_data;
 } *Serial;
+
+const char* serial_enumerate(const int i) {
+    static DIR *d = NULL;
+    static struct dirent *dir;
+
+    static char path[128];
+    char pathtmp[128];
+
+    if (i == 0) {
+        if (NULL != d) {
+            closedir(d);
+            d = NULL;
+        }
+        d = opendir("/sys/class/tty");
+    }
+
+    if (NULL == d) {
+        return NULL; // failed to opendir, or no more items.
+    }
+
+    while ((dir = readdir(d)) != NULL) {
+        sprintf(path, "/sys/class/tty/%s", dir->d_name);
+        sprintf(pathtmp, "%s/device", path);
+        if (access(pathtmp, F_OK) != -1) {
+            //FIXME: further more check. dont know if it's necessary.
+            // modify these code and remove this comment.
+            sprintf(pathtmp, "%s/driver/serial8250", pathtmp);
+            if (access(pathtmp, F_OK) != -1) continue; // skip 8250 device
+
+            return path;
+        }
+    }
+
+    closedir(d);
+    d = NULL;
+
+    return NULL;
+}
 
 /*
  * We store our serial backends in a tree sorted by fd, so that

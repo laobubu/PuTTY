@@ -535,6 +535,7 @@ void agent_schedule_callback(void (*callback)(void *, void *, int),
  * Exports from winser.c.
  */
 extern Backend serial_backend;
+extern const char* serial_enumerate(const int i);
 
 /*
  * Exports from winjump.c.
