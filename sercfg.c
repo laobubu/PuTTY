@@ -182,6 +182,7 @@ void ser_setup_config_box(struct controlbox *b, int midsession,
 	ctrl_editbox(s, "Serial line to connect to", 'l', 40,
 		     HELPCTX(serial_line),
 		     conf_editbox_handler, I(CONF_serline), I(1));
+	ctrl_text(s, "Use \"COM\" (without a number) to let Windows detect one.", HELPCTX(serial_line));
     }
 
     s = ctrl_getset(b, "Connection/Serial", "sercfg", "Configure the serial line");

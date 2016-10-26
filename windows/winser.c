@@ -222,6 +222,57 @@ static const char *serial_init(void *frontend_handle, void **backend_handle,
 	logevent(serial->frontend, msg);
     }
 
+    if (strcmp(serline, "COM") == 0 || strcmp(serline, "AUTO") == 0)
+    {
+    /*
+     * Auto detect one available serial port, then use it.
+     */
+        {
+            char *msg = dupprintf("Start scanning serial port");
+            logevent(serial->frontend, msg);
+        }
+
+        char *new_serial;
+        char *ptr;
+        DWORD new_serial_chars;
+
+        new_serial_chars = 65535;
+        new_serial = (char*)snmalloc(new_serial_chars, sizeof(char));
+        new_serial_chars = QueryDosDevice(NULL, new_serial, new_serial_chars);
+
+        ptr = new_serial;
+
+        while (new_serial_chars)
+        {
+            int port;
+            if (memcmp(ptr, "COM", 3) == 0)
+            {
+                // Add to list of com ports
+
+                {
+                    char *msg = dupprintf("Set serial device to %s", ptr);
+                    logevent(serial->frontend, msg);
+                }
+
+                sfree(serline);
+
+                serline = snmalloc(strlen(ptr), sizeof(char));
+                strcpy(serline, ptr);
+                break;
+            }
+            TCHAR *temp_ptr = strchr(ptr, 0);
+            new_serial_chars -= (DWORD)((temp_ptr - ptr) / sizeof(TCHAR) + 1);
+            ptr = temp_ptr + 1;
+        }
+
+        sfree(new_serial);
+
+        {
+            char *msg = dupprintf("Stop scanning serial port");
+            logevent(serial->frontend, msg);
+        }
+    }
+
     {
 	/*
 	 * Munge the string supplied by the user into a Windows filename.
