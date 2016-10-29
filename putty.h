@@ -1024,6 +1024,7 @@ void term_scroll(Terminal *, int, int);
 void term_scroll_to_selection(Terminal *, int);
 void term_pwron(Terminal *, int);
 void term_clrsb(Terminal *);
+void term_drop(Terminal *, char*, int, int);
 void term_mouse(Terminal *, Mouse_Button, Mouse_Button, Mouse_Action,
 		int,int,int,int,int);
 void term_key(Terminal *, Key_Sym, wchar_t *, size_t, unsigned int,

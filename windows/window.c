@@ -2092,6 +2092,40 @@ static void conf_cache_data(void)
     vtmode = conf_get_int(conf, CONF_vtmode);
 }
 
+static void WMDropFiles(WPARAM WParam, HWND hWnd)
+{
+   int TotalNumberOfFiles;
+   int nFileLength;
+   char *pszFileName;
+   POINT pPoint;
+   BOOL inClientArea;
+   int i;
+   char *filelist, *tmp;
+
+   HANDLE Handle = (HANDLE)WParam;
+   filelist = (char*)snmalloc(1, sizeof(char)); filelist[0] = '\0';
+   TotalNumberOfFiles = DragQueryFile( Handle , -1, NULL, 0 );
+
+   for ( i = 0; i < TotalNumberOfFiles ; i++ )
+   {
+      nFileLength  = DragQueryFile( Handle , i , NULL, 0 );
+      pszFileName = (char*)malloc(nFileLength + 1);
+
+      DragQueryFile( Handle , i, pszFileName, nFileLength + 1 );
+      inClientArea = DragQueryPoint( Handle , &pPoint );
+
+      tmp = dupcat(filelist, "file://", pszFileName, "\n", NULL);
+      sfree(filelist);
+      filelist = tmp;
+   }
+
+   tmp = dupcat(filelist, "\n", NULL);  //extra empty line
+   sfree(filelist);
+   term_drop(term, tmp, pPoint.x, pPoint.y);
+
+   DragFinish( Handle );
+}
+
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
 				WPARAM wParam, LPARAM lParam)
 {
@@ -2116,6 +2150,7 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
 	}
 	return 0;
       case WM_CREATE:
+        DragAcceptFiles(hwnd, TRUE);
 	break;
       case WM_CLOSE:
 	{
@@ -2126,8 +2161,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
 		MessageBox(hwnd,
 			   "Are you sure you want to close this session?",
 			   str, MB_ICONWARNING | MB_OKCANCEL | MB_DEFBUTTON1)
-		== IDOK)
-		DestroyWindow(hwnd);
+		== IDOK) 
+        {
+            DragAcceptFiles(hwnd, FALSE);
+		    DestroyWindow(hwnd);
+        }
 	    sfree(str);
 	}
 	return 0;
@@ -3273,6 +3311,12 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
 	if (process_clipdata((HGLOBAL)lParam, wParam))
 	    term_do_paste(term);
 	return 0;
+
+    /* support drag n drop feature */
+      case WM_DROPFILES:
+          WMDropFiles(wParam, hwnd);
+          break;
+
       default:
 	if (message == wm_mousewheel || message == WM_MOUSEWHEEL) {
 	    int shift_pressed=0, control_pressed=0;
