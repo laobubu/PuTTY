@@ -1905,6 +1905,16 @@ gboolean scroll_event(GtkWidget *widget, GdkEventScroll *event, gpointer data)
 }
 #endif
 
+static void
+drag_event(GtkWidget *wgt, GdkDragContext *context, int x, int y,
+                        GtkSelectionData *seldata, guint info, guint time,
+                        gpointer userdata)
+{
+    struct gui_data *inst = (struct gui_data *)data;
+    char *flist_copy = dupcat((gchar*)seldata->data, NULL);
+    term_drop(inst->term, flist_copy, x, y);
+}
+
 gint motion_event(GtkWidget *widget, GdkEventMotion *event, gpointer data)
 {
     struct gui_data *inst = (struct gui_data *)data;
@@ -4375,6 +4385,28 @@ struct gui_data *new_session_window(Conf *conf, const char *geometry_string)
 #endif
     g_signal_connect(G_OBJECT(inst->area), "motion_notify_event",
                      G_CALLBACK(motion_event), inst);
+
+    // setup drag'n'drop
+    {
+        enum
+        {
+            TARGET_STRING,
+            TARGET_URL
+        };
+
+        static GtkTargetEntry targetentries[] =
+        {
+            { "STRING",        0, TARGET_STRING },
+            { "text/plain",    0, TARGET_STRING },
+            { "text/uri-list", 0, TARGET_URL },
+        };
+
+        gtk_drag_dest_set(G_OBJECT(inst->area), GTK_DEST_DEFAULT_ALL, targetentries, 3,
+                    (GdkDragAction) (GDK_ACTION_COPY|GDK_ACTION_MOVE|GDK_ACTION_LINK));
+        g_signal_connect(G_OBJECT(inst->area), "drag_data_received",
+                        G_CALLBACK(drag_event), inst);
+    }
+
 #if GTK_CHECK_VERSION(2,0,0)
     g_signal_connect(G_OBJECT(inst->imc), "commit",
                      G_CALLBACK(input_method_commit_event), inst);

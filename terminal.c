@@ -5951,6 +5951,21 @@ void term_do_paste(Terminal *term)
     queue_toplevel_callback(term_paste_callback, term);
 }
 
+// trigged when user finished drag-n-drop
+// filelist is in GTK style. e.g.
+//
+//    file:///home/user/1.txt
+//    file:///home/user/another.txt
+//    (empty line as the end)
+//
+// remember to call sfree(filelist)
+void term_drop(Terminal *term, char* filelist, int x, int y)
+{
+    message_box(filelist, "drop files", 0, 0);
+    
+    sfree(filelist);
+}
+
 void term_mouse(Terminal *term, Mouse_Button braw, Mouse_Button bcooked,
 		Mouse_Action a, int x, int y, int shift, int ctrl, int alt)
 {
