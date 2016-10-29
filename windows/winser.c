@@ -223,6 +223,33 @@ static const char *serial_configure(Serial serial, HANDLE serport, Conf *conf)
 }
 
 /*
+ * Find next available serial port.
+ */
+static const char* serial_get_available_port(Serial serial) {
+    char *serline = NULL, *msg, *serfilename;
+    int i = 0;
+    HANDLE serport;
+
+    while ((serline = (char*)serial_enumerate(i++)) != NULL) 
+    {
+        msg = dupprintf("Trying %s", serline);
+        logevent(serial->frontend, msg);
+
+        serfilename = dupprintf("\\\\.\\%s", serline);
+        serport = CreateFile(serfilename, GENERIC_READ | GENERIC_WRITE, 0, NULL,
+            OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+        sfree(serfilename);
+
+        if (serport != INVALID_HANDLE_VALUE) { // SUCCESS
+            CloseHandle(serport);
+            break;
+        }
+    }
+
+    return serline;
+}
+
+/*
  * Called to set up the serial connection.
  * 
  * Returns an error message, or NULL on success.
@@ -259,16 +286,12 @@ static const char *serial_init(void *frontend_handle, void **backend_handle,
     /*
      * Auto detect one available serial port, then use it.
      */
-        char *newLine = (char*)serial_enumerate(0);
-        if (NULL == newLine) return "No available COM port.";
-        
-        {
-            char *msg = dupprintf("Selecting %s", newLine);
-            logevent(serial->frontend, msg);
-        }
+        serline = serial_get_available_port(serial);
+        if (NULL == serline) return "No available COM port.";
 
-        sfree(serline);
-        serline = newLine;
+        char *msg = dupprintf("Use serial port: %s\r\n", serline);
+        from_backend(serial->frontend, 1, msg, strlen(msg));
+        sfree(msg);
     }
 
     {
