@@ -54,6 +54,7 @@ const char* serial_enumerate(const int i) {
             sprintf(pathtmp, "%s/driver/serial8250", pathtmp);
             if (access(pathtmp, F_OK) != -1) continue; // skip 8250 device
 
+	    sprintf(path, "/dev/%s", dir->d_name);
             return path;
         }
     }
