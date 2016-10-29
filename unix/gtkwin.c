@@ -1910,8 +1910,8 @@ drag_event(GtkWidget *wgt, GdkDragContext *context, int x, int y,
                         GtkSelectionData *seldata, guint info, guint time,
                         gpointer userdata)
 {
-    struct gui_data *inst = (struct gui_data *)data;
-    char *flist_copy = dupcat((gchar*)seldata->data, NULL);
+    struct gui_data *inst = (struct gui_data *)userdata;
+    char *flist_copy = dupcat((char*)gtk_selection_data_get_data(seldata), NULL);
     term_drop(inst->term, flist_copy, x, y);
 }
 
@@ -4401,7 +4401,7 @@ struct gui_data *new_session_window(Conf *conf, const char *geometry_string)
             { "text/uri-list", 0, TARGET_URL },
         };
 
-        gtk_drag_dest_set(G_OBJECT(inst->area), GTK_DEST_DEFAULT_ALL, targetentries, 3,
+        gtk_drag_dest_set(inst->area, GTK_DEST_DEFAULT_ALL, targetentries, 3,
                     (GdkDragAction) (GDK_ACTION_COPY|GDK_ACTION_MOVE|GDK_ACTION_LINK));
         g_signal_connect(G_OBJECT(inst->area), "drag_data_received",
                         G_CALLBACK(drag_event), inst);
