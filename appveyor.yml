@@ -1,0 +1,36 @@
+version: 1.0.{build}
+image: Visual Studio 2013
+platform: x86
+clone_depth: 5
+clone_folder: C:\projects\PuTTY
+init:
+- cmd: '"C:\Program Files (x86)\Microsoft Visual Studio 12.0\Common7\Tools\VsDevCmd.bat"'
+build_script:
+- cmd: >-
+    cd C:\projects\PuTTY
+
+    mkfiles.pl
+
+    cd windows
+
+    nmake -f Makefile.vc
+
+
+    REM ------ pack up --------
+
+    del testbn.exe
+
+    7z a all_in_one.zip *.exe
+artifacts:
+- path: windows\*.exe
+  name: X86 Builds
+- path: windows\all_in_one.zip
+  name: X86 Builds
+deploy:
+- provider: GitHub
+  auth_token:
+    secure: Oma9SI8DkJz0x5GE5Lt2wsJ65ErG94HCtDqu8S+PmKaNBFLJv9ZZwjt9usY1E95B
+  artifact: X86 Builds
+  force_update: true
+  on:
+    branch: master-enhanced
