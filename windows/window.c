@@ -21,6 +21,11 @@
 #include "win_res.h"
 #include "winsecur.h"
 
+int  xyz_Process(Backend *back, void *backhandle, Terminal *term);
+void xyz_ReceiveInit(Terminal *term);
+void xyz_StartSending(Terminal *term, char* fns);
+void xyz_Cancel(Terminal *term);
+
 #ifndef NO_MULTIMON
 #include <multimon.h>
 #endif
@@ -930,6 +935,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 
 	    if (!(IsWindow(logbox) && IsDialogMessage(logbox, &msg)))
 		DispatchMessageW(&msg);
+        
+        if (xyz_Process(back, backhandle, term))
+            continue;
 
             /*
              * WM_NETEVENT messages seem to jump ahead of others in

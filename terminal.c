@@ -70,6 +70,8 @@ const char *EMPTY_WINDOW_TITLE = "";
 
 const char sco2ansicolour[] = { 0, 4, 2, 6, 1, 5, 3, 7 };
 
+int xyz_ReceiveData(Terminal *term, const char *buffer, int len);
+
 #define sel_nl_sz  (sizeof(sel_nl)/sizeof(wchar_t))
 const wchar_t sel_nl[] = SEL_NL;
 
@@ -1646,6 +1648,9 @@ Terminal *term_init(Conf *myconf, struct unicode_data *ucsdata,
     term->basic_erase_char.attr = ATTR_DEFAULT;
     term->basic_erase_char.cc_next = 0;
     term->erase_char = term->basic_erase_char;
+
+    term->xyz_transfering = 0;
+    term->xyz_Internals = NULL;
 
     return term;
 }
@@ -5961,8 +5966,9 @@ void term_do_paste(Terminal *term)
 // remember to call sfree(filelist)
 void term_drop(Terminal *term, char* filelist, int x, int y)
 {
-    message_box(filelist, "drop files", 0, 0);
-    
+    void xyz_StartSending(Terminal *term, char* fns);
+
+    xyz_StartSending(term, filelist);
     sfree(filelist);
 }
 
@@ -6314,6 +6320,9 @@ int term_ldisc(Terminal *term, int option)
 
 int term_data(Terminal *term, int is_stderr, const char *data, int len)
 {
+    if (term->xyz_transfering && !is_stderr) 
+        return xyz_ReceiveData(term, data, len);
+
     bufchain_add(&term->inbuf, data, len);
 
     if (!term->in_term_out) {

@@ -216,12 +216,12 @@ TERMINAL = terminal wcwidth ldiscucs logging tree234 minibidi
 
 # GUI front end and terminal emulator (putty, puttytel).
 GUITERM  = TERMINAL window windlg winctrls sizetip winucs winprint
-         + winutils wincfg sercfg winhelp winjump miscucs
+         + winutils wincfg sercfg zmodemcfg winhelp winjump miscucs winzmodem
 
 # Same thing on Unix.
-UXTERM   = TERMINAL uxcfg sercfg uxucs uxprint timing callback miscucs
+UXTERM   = TERMINAL uxcfg sercfg zmodemcfg uxucs uxprint timing callback miscucs
 GTKTERM  = UXTERM gtkwin gtkcfg gtkdlg gtkfont gtkcols gtkmisc xkeysym
-	 + x11misc gtkcomm
+	 + x11misc gtkcomm uxzmodem
 
 # Non-SSH back ends (putty, puttytel, plink).
 NONSSH   = telnet raw rlogin ldisc pinger

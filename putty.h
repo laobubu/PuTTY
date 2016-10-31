@@ -909,6 +909,11 @@ void cleanup_exit(int);
     X(INT, NONE, shadowboldoffset) \
     X(INT, NONE, crhaslf) \
     X(STR, NONE, winclass) \
+    /* Options for lrzsz */ \
+    X(FILENAME, NONE, zm_rz)  \
+    X(INT, NONE, zm_autorecv) \
+    X(STR, NONE, zm_sendcmd)  \
+    X(STR, NONE, zm_sendcmd_post)  \
 
 /* Now define the actual enum of option keywords using that macro. */
 #define CONF_ENUM_DEF(valtype, keytype, keyword) CONF_ ## keyword,
@@ -1155,6 +1160,11 @@ char const *conf_dest(Conf *conf);
  */
 void ser_setup_config_box(struct controlbox *b, int midsession,
 			  int parity_mask, int flow_mask);
+
+/*
+ * Exports from zmodemcfg.c
+ */
+void zm_setup_config_box(struct controlbox *b, int midsession);
 
 /*
  * Exports from version.c.

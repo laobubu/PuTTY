@@ -400,4 +400,9 @@ void win_setup_config_box(struct controlbox *b, HWND *hwndp, int has_help,
 		     HELPCTX(ssh_tunnels_xauthority),
 		     conf_filesel_handler, I(CONF_xauthfile));
     }
+
+    /*
+     * Drag'n'drop and ZModem support
+     */
+    zm_setup_config_box(b, midsession);
 }
