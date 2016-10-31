@@ -935,9 +935,6 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 
 	    if (!(IsWindow(logbox) && IsDialogMessage(logbox, &msg)))
 		DispatchMessageW(&msg);
-        
-        if (xyz_Process(back, backhandle, term))
-            continue;
 
             /*
              * WM_NETEVENT messages seem to jump ahead of others in
@@ -961,6 +958,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
             if (msg.message != WM_NETEVENT)
                 break;
 	}
+
+    if (xyz_Process(back, backhandle, term))
+        continue;
 
         run_toplevel_callbacks();
     }

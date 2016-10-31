@@ -8,6 +8,14 @@
 #include "terminal.h"
 #include "ldisc.h"
 
+#define SZ_STALL_TIME 5
+
+#if defined(WIN32) || defined(_WIN32) 
+#define PATH_SEPARATOR '\\'
+#else 
+#define PATH_SEPARATOR '/' 
+#endif 
+
 void xyz_ReceiveInit(Terminal *term);
 int xyz_ReceiveData(Terminal *term, const char *buffer, int len);
 static int xyz_SpawnProcess(Terminal *term, const char *incommand, const char *inparams);
@@ -30,6 +38,8 @@ static int IsWinNT()
     GetVersionEx(&osv);
     return (osv.dwPlatformId == VER_PLATFORM_WIN32_NT);
 }
+
+
 
 void xyz_Done(Terminal *term)
 {
@@ -119,7 +129,7 @@ static int xyz_Check(Backend *back, void *backhandle, Terminal *term, int check_
     GetExitCodeProcess(term->xyz_Internals->pi.hProcess, &exitcode);
 
     // if process exited, or no transfer in 4 sec, then terminate the transmission.
-    if (exitcode != STILL_ACTIVE || (time(NULL) - last_stdout_works) > 2) {
+    if (exitcode != STILL_ACTIVE || (time(NULL) - last_stdout_works) > SZ_STALL_TIME) {
         xyz_Done(term);
         return 1;
     }
@@ -135,9 +145,71 @@ void xyz_ReceiveInit(Terminal *term)
     }
 }
 
+// send file with unix xxd command
+static void xyz_termSend(Terminal *term, char* fn)
+{
+    Ldisc ldisc = ((Ldisc)term->ldisc);
+    Backend *back = ldisc->back;
+    void *backhandle = ldisc->backhandle;
+
+#define twrite(buf, len) back->send(backhandle, buf, len)
+#define tputs(str)  twrite(str, strlen(str))
+    
+    char *filename_base = strrchr(fn, PATH_SEPARATOR) + 1;
+    
+    size_t len;
+    char buf[1024];
+    char sendtmp[3];
+    FILE* fp = fopen(fn, "rb");
+
+    tputs("xxd -r -ps >");
+    tputs(filename_base);
+    tputs(" <<EOF\n");
+
+    while (!feof(fp)) {
+        char *readtmp = buf;
+
+        len = fread(buf, 1, sizeof buf, fp);
+        while (len--) {
+            sprintf(sendtmp, "%.2x", *readtmp++);
+            tputs(sendtmp);
+        }
+    }
+
+    tputs("\nEOF\n");
+
+#undef twrite
+#undef tputs
+
+}
+
 void xyz_StartSending(Terminal *term, char* fns)
 {
-    char sz_path[MAX_PATH] = "sz.exe -Y"; //FIXME: read from conf
+#if 0
+    char* fnprev = fns; // the beginning of current filename
+    int fnlen;
+
+    while (1) {
+        if ((fns = strchr(fnprev, '\n')) == NULL) fns = strchr(fnprev, '\0');
+        else if (fns == fnprev) break; // "\n\n" as the end
+
+        if (memcmp(fnprev, "file://", 7) == 0) fnprev += 7; // skip prefix
+        *fns = '\0';
+        fnlen = fns - fnprev;
+
+        from_backend(term, 1, "\rSending ", 9);
+        from_backend(term, 1, fnprev, strlen(fnprev));
+        from_backend(term, 1, "   ", 3);
+
+        xyz_termSend(term, fnprev);
+
+        if (*fns == '\0') break;
+        fnprev = ++fns;
+    }
+
+#else
+
+    char sz_path[MAX_PATH] = "sz.exe -v"; //FIXME: read from conf
     char sz_full_params[32767], *param_ptr = sz_full_params;
 
     filename_to_str(conf_get_filename(term->conf, CONF_zm_rz));
@@ -166,6 +238,8 @@ void xyz_StartSending(Terminal *term, char* fns)
     if (xyz_SpawnProcess(term, sz_path, sz_full_params) == 0) {
         term->xyz_transfering = 1;
     }
+
+#endif
 }
 
 void xyz_Cancel(Terminal *term)
