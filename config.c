@@ -170,7 +170,23 @@ static void config_host_handler(union control *ctrl, void *dlg,
 	     * This label text is carefully chosen to contain an n,
 	     * since that's the shortcut for the host name control.
 	     */
+#ifdef _WIN32
+        char label_name[200] = "Serial line";
+
+        {
+            int com_count;
+            const char *com_name;
+            for (com_count = 0; (com_name = serial_enumerate(com_count)) != NULL; com_count++) {
+                strcat(label_name, (com_count == 0) ? " (COM" : ", ");
+                strcat(label_name, com_name + 3); // skip "COM"
+            }
+            if (com_count > 0) strcat(label_name, ")");
+        }
+
+        dlg_label_change(ctrl, dlg, label_name);
+#else
 	    dlg_label_change(ctrl, dlg, "Serial line");
+#endif
 	    dlg_editbox_set(ctrl, dlg, conf_get_str(conf, CONF_serline));
 	} else {
 	    dlg_label_change(ctrl, dlg, HOST_BOX_TITLE);

@@ -225,6 +225,7 @@ void *sk_getxdmdata(void *sock, int *lenp);
  * Exports from winser.c.
  */
 extern Backend serial_backend;
+extern const char* serial_enumerate(const int i);
 
 /*
  * uxpeer.c, wrapping getsockopt(SO_PEERCRED).

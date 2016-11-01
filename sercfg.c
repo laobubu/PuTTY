@@ -124,6 +124,30 @@ static void serial_flow_handler(union control *ctrl, void *dlg,
     }
 }
 
+static void ser_serialline_handler(union control *ctrl, void *dlg,
+    void *data, int event)
+{
+    Conf *conf = (Conf *)data;
+    if (event == EVENT_REFRESH) {
+        int i;
+        const char *cp;
+        dlg_update_start(ctrl, dlg);
+        dlg_listbox_clear(ctrl, dlg);
+
+        for (i = 0; (cp = serial_enumerate(i)) != NULL; i++)
+            dlg_listbox_add(ctrl, dlg, cp);
+
+        dlg_editbox_set(ctrl, dlg, conf_get_str(conf, CONF_serline));
+        dlg_update_done(ctrl, dlg);
+    }
+    else if (event == EVENT_VALCHANGE) {
+        char *line = dlg_editbox_get(ctrl, dlg);
+        conf_set_str(conf, CONF_serline, line);
+        conf_set_int(conf, CONF_protocol, PROT_SERIAL);
+        sfree(line);
+    }
+}
+
 void ser_setup_config_box(struct controlbox *b, int midsession,
 			  int parity_mask, int flow_mask)
 {
@@ -179,9 +203,12 @@ void ser_setup_config_box(struct controlbox *b, int midsession,
 	 */
 	s = ctrl_getset(b, "Connection/Serial", "serline",
 			"Select a serial line");
-	ctrl_editbox(s, "Serial line to connect to", 'l', 40,
+	ctrl_combobox(s, "Serial line", 'l', 70,
 		     HELPCTX(serial_line),
-		     conf_editbox_handler, I(CONF_serline), I(1));
+             ser_serialline_handler, P(NULL), P(NULL));
+#ifdef _WIN32
+    ctrl_text(s, "Use \"COM\" (without number) to select the first serial.", HELPCTX(serial_line));
+#endif
     }
 
     s = ctrl_getset(b, "Connection/Serial", "sercfg", "Configure the serial line");

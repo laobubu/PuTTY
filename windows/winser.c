@@ -19,6 +19,38 @@ typedef struct serial_backend_data {
     int break_in_progress;
 } *Serial;
 
+const char* serial_enumerate(const int i) {
+    static char *device_names = NULL;
+    static char *ptrs[32]; // the strings beginning with "COM"
+
+    if (i == 0) { // refresh serial line list
+        sfree(device_names);
+
+        DWORD charCnt = 65535;
+        device_names = (char*)snmalloc(charCnt, sizeof(char));
+        charCnt = QueryDosDevice(NULL, device_names, charCnt);
+
+        char* ptr = device_names;
+        int ptrs_i = 0;
+
+        while (charCnt)
+        {
+            if (memcmp(ptr, "COM", 3) == 0)
+            {
+                // Add to list of com ports
+                ptrs[ptrs_i++] = ptr;
+            }
+            char *temp_ptr = strchr(ptr, 0);
+            charCnt -= (DWORD)((temp_ptr - ptr) / sizeof(char) + 1);
+            ptr = temp_ptr + 1;
+        }
+
+        ptrs[ptrs_i] = NULL; // last one of array shall be NULL
+    }
+
+    return ptrs[i];
+}
+
 static void serial_terminate(Serial serial)
 {
     if (serial->out) {
@@ -191,6 +223,33 @@ static const char *serial_configure(Serial serial, HANDLE serport, Conf *conf)
 }
 
 /*
+ * Find next available serial port.
+ */
+static const char* serial_get_available_port(Serial serial) {
+    char *serline = NULL, *msg, *serfilename;
+    int i = 0;
+    HANDLE serport;
+
+    while ((serline = (char*)serial_enumerate(i++)) != NULL) 
+    {
+        msg = dupprintf("Trying %s", serline);
+        logevent(serial->frontend, msg);
+
+        serfilename = dupprintf("\\\\.\\%s", serline);
+        serport = CreateFile(serfilename, GENERIC_READ | GENERIC_WRITE, 0, NULL,
+            OPEN_EXISTING, FILE_FLAG_OVERLAPPED, NULL);
+        sfree(serfilename);
+
+        if (serport != INVALID_HANDLE_VALUE) { // SUCCESS
+            CloseHandle(serport);
+            break;
+        }
+    }
+
+    return serline;
+}
+
+/*
  * Called to set up the serial connection.
  * 
  * Returns an error message, or NULL on success.
@@ -220,6 +279,19 @@ static const char *serial_init(void *frontend_handle, void **backend_handle,
     {
 	char *msg = dupprintf("Opening serial device %s", serline);
 	logevent(serial->frontend, msg);
+    }
+
+    if (strcmp(serline, "COM") == 0 || strcmp(serline, "AUTO") == 0)
+    {
+    /*
+     * Auto detect one available serial port, then use it.
+     */
+        serline = serial_get_available_port(serial);
+        if (NULL == serline) return "No available COM port.";
+
+        char *msg = dupprintf("Use serial port: %s\r\n", serline);
+        from_backend(serial->frontend, 1, msg, strlen(msg));
+        sfree(msg);
     }
 
     {
