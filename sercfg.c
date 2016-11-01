@@ -143,6 +143,7 @@ static void ser_serialline_handler(union control *ctrl, void *dlg,
     else if (event == EVENT_VALCHANGE) {
         char *line = dlg_editbox_get(ctrl, dlg);
         conf_set_str(conf, CONF_serline, line);
+        conf_set_int(conf, CONF_protocol, PROT_SERIAL);
         sfree(line);
     }
 }
