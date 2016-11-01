@@ -225,7 +225,7 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
 	  case IDA_WEB:
 	    /* Load web browser */
 	    ShellExecute(hwnd, "open",
-			 "http://www.chiark.greenend.org.uk/~sgtatham/putty/",
+			 "https://laobubu.net/PuTTY",
 			 0, 0, SW_SHOWDEFAULT);
 	    return 0;
 	}

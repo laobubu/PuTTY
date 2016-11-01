@@ -6,6 +6,7 @@
 #include <stdarg.h>
 #include <ctype.h>
 #include <time.h>
+#include <stdlib.h>
 
 #include <gtk/gtk.h>
 #if !GTK_CHECK_VERSION(3,0,0)
@@ -3654,6 +3655,15 @@ static void about_key_press(GtkWidget *widget, GdkEventKey *event,
     }
 }
 
+static void website_clicked(GtkButton *button, gpointer data)
+{
+    int pid = fork();
+    if (pid == 0) {
+        execl("/usr/bin/xdg-open", "xdg-open", "https://laobubu.net/PuTTY", (char *)0);
+        exit(1);
+    }
+}
+
 static void licence_clicked(GtkButton *button, gpointer data)
 {
     char *title;
@@ -3698,6 +3708,13 @@ void about_box(void *window)
     gtk_box_pack_end(action_area, w, FALSE, FALSE, 0);
     g_signal_connect(G_OBJECT(w), "clicked",
                      G_CALLBACK(licence_clicked), NULL);
+    gtk_widget_show(w);
+
+    w = gtk_button_new_with_label("Website");
+    gtk_widget_set_can_default(w, TRUE);
+    gtk_box_pack_end(action_area, w, FALSE, FALSE, 0);
+    g_signal_connect(G_OBJECT(w), "clicked",
+                     G_CALLBACK(website_clicked), NULL);
     gtk_widget_show(w);
 
     {
