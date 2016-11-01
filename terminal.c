@@ -11,6 +11,7 @@
 #include <assert.h>
 #include "putty.h"
 #include "terminal.h"
+#include "subthd.h"
 
 #define poslt(p1,p2) ( (p1).y < (p2).y || ( (p1).y == (p2).y && (p1).x < (p2).x ) )
 #define posle(p1,p2) ( (p1).y < (p2).y || ( (p1).y == (p2).y && (p1).x <= (p2).x ) )
@@ -1648,6 +1649,12 @@ Terminal *term_init(Conf *myconf, struct unicode_data *ucsdata,
     term->basic_erase_char.attr = ATTR_DEFAULT;
     term->basic_erase_char.cc_next = 0;
     term->erase_char = term->basic_erase_char;
+
+    term->inbuf2_enabled = 0;
+    bufchain_init(&term->inbuf2);
+    term->inbuf2_mutex = subthd_mutex_init("term_inbuf2_in");
+
+    term->subthd = NULL;
 
     term->xyz_transfering = 0;
     term->xyz_Internals = NULL;
@@ -6322,6 +6329,13 @@ int term_data(Terminal *term, int is_stderr, const char *data, int len)
 {
     if (term->xyz_transfering && !is_stderr) 
         return xyz_ReceiveData(term, data, len);
+
+    if (term->inbuf2_enabled && !is_stderr) {
+        subthd_mutex_lock(term->inbuf2_mutex, 0);
+        bufchain_add(&term->inbuf2, data, len);
+        subthd_mutex_unlock(term->inbuf2_mutex);
+        return 0;
+    }
 
     bufchain_add(&term->inbuf, data, len);
 

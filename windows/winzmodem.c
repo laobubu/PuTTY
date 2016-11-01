@@ -7,6 +7,7 @@
 #include "putty.h"
 #include "terminal.h"
 #include "ldisc.h"
+#include "subthd.h"
 
 #define SZ_STALL_TIME 5
 
@@ -84,7 +85,7 @@ static int xyz_Check(Backend *back, void *backhandle, Terminal *term, int check_
     char buf[1024];
     HANDLE h;
 
-    static time_t last_stdout_works = NULL;
+    static time_t last_stdout_works = 0;
 
     if (!term->xyz_transfering) {
         last_stdout_works = time(NULL);
@@ -146,69 +147,171 @@ void xyz_ReceiveInit(Terminal *term)
 }
 
 // send file with unix xxd command
-static void xyz_termSend(Terminal *term, char* fn)
+// assuming term->inbuf2 is enabled and ready
+static void xyz_sendFileWithXxd(Terminal *term, char* fn)
 {
-    Ldisc ldisc = ((Ldisc)term->ldisc);
-    Backend *back = ldisc->back;
-    void *backhandle = ldisc->backhandle;
-
-#define twrite(buf, len) back->send(backhandle, buf, len)
+#define twrite(buf, len) subthd_back_write(buf, len)
 #define tputs(str)  twrite(str, strlen(str))
     
     char *filename_base = strrchr(fn, PATH_SEPARATOR) + 1;
-    
-    size_t len;
-    char buf[1024];
-    char sendtmp[3];
-    FILE* fp = fopen(fn, "rb");
+    const int block_size = 1024;
 
-    tputs("xxd -r -ps >");
+    size_t len;
+    long fsize;
+    char *buf;
+    char sendtmp[64];
+    unsigned char cycle_counter = ' ';
+    FILE* fp = fopen(fn, "rb");
+    
+    time_t next_report_time = 0;
+    const int report_interval = 1;
+
+    subthd_back_read_empty_buf();
+
+    buf = snmalloc(1, block_size);
+
+    fseek(fp, 0, SEEK_END); fsize = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    tputs(" stty -echo;\n");
+    subthd_back_flush();
+
+    tputs(" AZps1=$PS1; AZhc1=$HISTCONTROL; PS1='.'; HISTCONTROL=ignorespace; ");
+    tputs(" rm -rf ");   tputs(filename_base);   tputs("; \n");
+    tputs(" AZupl () { printf \"\\r@@@\"; read a; (echo \"$a\" |xxd -r -p >>");
     tputs(filename_base);
-    tputs(" <<EOF\n");
+    tputs("); echo -n \"~~~$1\"; } \n");
+    subthd_back_flush();
 
     while (!feof(fp)) {
-        char *readtmp = buf;
+        if (++cycle_counter >= '~') cycle_counter = ' '; // use printable ASCII chars, skip '~'
+        if (cycle_counter == '\\') cycle_counter++;      // skip '\\'
+        if (cycle_counter == '\'') cycle_counter++;      // skip '\''
 
-        len = fread(buf, 1, sizeof buf, fp);
+        sprintf(sendtmp, " AZupl '%c'\n", cycle_counter);
+        tputs(sendtmp);
+        subthd_back_flush();
+
+        int at_striking = 0;
+        while (1) {
+            while (subthd_back_read_buflen() <= 0) subthd_sleep(10);
+            subthd_back_read(buf, 1);
+
+            if (*buf == '@') { if (++at_striking == 3) break; }
+            else at_striking = 0;
+        }
+
+        unsigned char *readtmp = (unsigned char*)buf;
+        len = fread(buf, 1, block_size, fp);
         while (len--) {
             sprintf(sendtmp, "%.2x", *readtmp++);
             tputs(sendtmp);
         }
+
+        tputs("\n");
+        subthd_back_flush();
+
+        if (next_report_time <= time(NULL)) {
+            next_report_time = time(NULL) + report_interval;
+            sprintf(sendtmp, "%3d%%", (int)(ftell(fp) * 100 / fsize));
+            from_backend(term, 1, "\x8\x8\x8\x8", 4);
+            from_backend(term, 1, sendtmp, 4);
+        }
+
+        // waiting for "\r\r\r\r\r" as the ACK
+        int cr_striking = 0;
+        while (1) {
+            while (subthd_back_read_buflen() <= 0) subthd_sleep(10);
+            subthd_back_read(buf, 1);
+            
+            if (*buf == '~') cr_striking++;
+            else {
+                if (cr_striking >= 3) {
+                    if (*(unsigned char*)buf == cycle_counter)  break;
+
+                    sprintf(sendtmp, "\r\nWrong cycle tag! got %.2x, expected %.2x \n\r\x8\x8\x8\x8", *(unsigned char*)buf, (int)cycle_counter);
+                    from_backend(term, 1, sendtmp, strlen(sendtmp));
+                }
+                cr_striking = 0;
+            }
+        }
     }
 
-    tputs("\nEOF\n");
+    tputs(" PS1=$AZps1; HISTCONTROL=$AZhc1; printf \"\\r\"; stty echo; \n");
+    subthd_back_flush();
+
+    from_backend(term, 1, "\x8\x8\x8\x8(OK)", 8);
+
+    fclose(fp);
+    sfree(buf);
 
 #undef twrite
 #undef tputs
 
 }
 
+static void xyz_StartSending_sz(Terminal *term, char* fns);
+static int xyz_sending_thread(void* userdata);
+
+// accept: GTK file list style. see term_drop()
 void xyz_StartSending(Terminal *term, char* fns)
 {
-#if 0
+    int method = conf_get_int(term->conf, CONF_zm_drop_send_method);
+
+    if (method == SEND_WITH_LRZSZ) {
+        xyz_StartSending_sz(term, fns);
+    } 
+
+    if (method == SEND_WITH_SHELL) {
+        // filename list will be freed, hence we need a copy.
+        int fns_len = strlen(fns) + 1;
+        void *fns_copy = malloc(fns_len);
+        memcpy(fns_copy, fns, fns_len);
+
+        subthd_start(xyz_sending_thread, fns_copy);
+    }
+}
+
+int xyz_sending_thread(void* userdata)
+{
+    char* fns = (char*)userdata;
     char* fnprev = fns; // the beginning of current filename
     int fnlen;
 
+    term->inbuf2_enabled = 1;
+    subthd_sleep(200);
+
     while (1) {
-        if ((fns = strchr(fnprev, '\n')) == NULL) fns = strchr(fnprev, '\0');
-        else if (fns == fnprev) break; // "\n\n" as the end
+        if ((fns = strchr(fnprev, '\n')) == NULL) break; // "\n\0" or 
+        if (fns == fnprev) break;           // "\n\n" as the end of list
 
         if (memcmp(fnprev, "file://", 7) == 0) fnprev += 7; // skip prefix
         *fns = '\0';
         fnlen = fns - fnprev;
 
-        from_backend(term, 1, "\rSending ", 9);
+        from_backend(term, 1, "\r\nSending ", 10);
         from_backend(term, 1, fnprev, strlen(fnprev));
-        from_backend(term, 1, "   ", 3);
+        from_backend(term, 1, "\r\n\x8\x8\x8\x8", 6);
 
-        xyz_termSend(term, fnprev);
+        xyz_sendFileWithXxd(term, fnprev);
 
-        if (*fns == '\0') break;
+        *fns = '\n';
         fnprev = ++fns;
     }
 
-#else
+    subthd_sleep(200);
+    term->inbuf2_enabled = 0;
 
+    subthd_back_write("\n", 1);
+    subthd_back_flush();
+
+    free(userdata);
+
+    return 0;
+}
+
+void xyz_StartSending_sz(Terminal *term, char* fns)
+{
     char sz_path[MAX_PATH] = "sz.exe -v"; //FIXME: read from conf
     char sz_full_params[32767], *param_ptr = sz_full_params;
 
@@ -217,7 +320,7 @@ void xyz_StartSending(Terminal *term, char* fns)
     char* fnprev = fns; // the beginning of current filename
     int fnlen;
 
-    while (1) {
+    while (1) { // construct a string like:   "1.txt" "2.bin"
         if ((fns = strchr(fnprev, '\n')) == NULL) fns = strchr(fnprev, '\0');
         else if (fns == fnprev) break; // "\n\n" as the end
 
@@ -238,8 +341,6 @@ void xyz_StartSending(Terminal *term, char* fns)
     if (xyz_SpawnProcess(term, sz_path, sz_full_params) == 0) {
         term->xyz_transfering = 1;
     }
-
-#endif
 }
 
 void xyz_Cancel(Terminal *term)
@@ -249,90 +350,6 @@ void xyz_Cancel(Terminal *term)
 
 static int xyz_SpawnProcess(Terminal *term, const char *incommand, const char *inparams)
 {
-#if 0
-    // see https://msdn.microsoft.com/en-us/library/windows/desktop/ms682499(v=vs.85).aspx
-
-    SECURITY_ATTRIBUTES saAttr;
-
-    struct zModemInternals *xyz;
-    xyz = (struct zModemInternals *)smalloc(sizeof(struct zModemInternals));
-    memset(xyz, 0, sizeof(struct zModemInternals));
-    term->xyz_Internals = xyz;
-
-    // Set the bInheritHandle flag so pipe handles are inherited. 
-
-    saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
-    saAttr.bInheritHandle = TRUE;
-    saAttr.lpSecurityDescriptor = NULL;
-
-    HANDLE g_hChildStd_IN_Rd = NULL;
-    HANDLE g_hChildStd_IN_Wr = NULL;   // for host
-    HANDLE g_hChildStd_OUT_Rd = NULL;  // for host
-    HANDLE g_hChildStd_OUT_Wr = NULL;
-    HANDLE g_hChildStd_ERR_Rd = NULL;  // for host
-    HANDLE g_hChildStd_ERR_Wr = NULL;
-
-    // Create a pipe for the child process's STDOUT. 
-    // then Ensure the read handle to the pipe for STDOUT is not inherited.
-
-    if (!CreatePipe(&g_hChildStd_OUT_Rd, &g_hChildStd_OUT_Wr, &saAttr, 0)) return -1;
-    if (!SetHandleInformation(g_hChildStd_OUT_Rd, HANDLE_FLAG_INHERIT, 0)) return -2;
-
-    if (!CreatePipe(&g_hChildStd_IN_Rd, &g_hChildStd_IN_Wr, &saAttr, 0)) return -3;
-    if (!SetHandleInformation(g_hChildStd_IN_Wr, HANDLE_FLAG_INHERIT, 0)) return -4;
-
-    if (!CreatePipe(&g_hChildStd_ERR_Rd, &g_hChildStd_ERR_Wr, &saAttr, 0)) return -5;
-    if (!SetHandleInformation(g_hChildStd_ERR_Rd, HANDLE_FLAG_INHERIT, 0)) return -6;
-
-    // Spawn thread
-
-    PROCESS_INFORMATION piProcInfo;
-    STARTUPINFO siStartInfo;
-    BOOL bSuccess = FALSE;
-
-    // Set up members of the PROCESS_INFORMATION structure. 
-
-    ZeroMemory(&piProcInfo, sizeof(PROCESS_INFORMATION));
-
-    // Set up members of the STARTUPINFO structure. 
-    // This structure specifies the STDIN and STDOUT handles for redirection.
-
-    ZeroMemory(&siStartInfo, sizeof(STARTUPINFO));
-    siStartInfo.cb = sizeof(STARTUPINFO);
-    siStartInfo.hStdError = g_hChildStd_OUT_Wr;
-    siStartInfo.hStdOutput = g_hChildStd_OUT_Wr;
-    siStartInfo.hStdInput = g_hChildStd_IN_Rd;
-    siStartInfo.dwFlags |= STARTF_USESTDHANDLES;
-
-    // Create the child process. 
-
-    char command[4096];
-    sprintf(command, "%s %s", incommand, inparams);
-
-    bSuccess = CreateProcess(NULL,
-        command,       // command line 
-        NULL,          // process security attributes 
-        NULL,          // primary thread security attributes 
-        TRUE,          // handles are inherited 
-        0,             // creation flags 
-        NULL,          // use parent's environment 
-        NULL,          // use parent's current directory 
-        &siStartInfo,  // STARTUPINFO pointer 
-        &piProcInfo);  // receives PROCESS_INFORMATION 
-
-    if (!bSuccess)  // If an error occurs, exit the application. 
-        return -7;
-    else
-    {
-        // Close handles to the child process and its primary thread.
-        // Some applications might keep these handles to monitor the status
-        // of the child process, for example. 
-
-        CloseHandle(piProcInfo.hProcess);
-        CloseHandle(piProcInfo.hThread);
-    }
-#endif
-#if 1
     STARTUPINFO si;
     SECURITY_ATTRIBUTES sa;
     SECURITY_DESCRIPTOR sd;               //security information for pipes
@@ -455,7 +472,6 @@ static int xyz_SpawnProcess(Terminal *term, const char *incommand, const char *i
     CloseHandle(newstderr);
 
     return 0;
-#endif
 }
 
 int xyz_ReceiveData(Terminal *term, const char *buffer, int len)

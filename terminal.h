@@ -323,6 +323,13 @@ struct terminal_tag {
     int scroll_on_key;
     int xterm_256_colour;
 
+    struct subthd_tag *subthd;
+
+    int inbuf2_enabled; // redirect backend incoming to a buffer
+
+    bufchain inbuf2;    // direction : remote -> local
+    struct subthd_mutex_t *inbuf2_mutex;
+
     int xyz_transfering;
     struct zModemInternals *xyz_Internals;
 };

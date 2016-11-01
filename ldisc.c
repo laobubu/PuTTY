@@ -149,6 +149,11 @@ void ldisc_send(void *handle, const char *buf, int len, int interactive)
      */
     frontend_keypress(ldisc->frontend);
 
+    /* using alternative pipe. nothing shall be sent here */
+    if (term->inbuf2_enabled) {
+        return;
+    }
+
     if (interactive) {
         /*
          * Interrupt a paste from the clipboard, if one was in

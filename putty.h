@@ -322,6 +322,14 @@ enum {
 };
 
 enum {
+    /*
+    * Drag'n'drop sending file method
+    */
+    SEND_WITH_SHELL,        /* use shell command. slow but stable for remote Linux */
+    SEND_WITH_LRZSZ         /* use lrzsz commands */
+};
+
+enum {
     /* Actions on remote window title query */
     TITLE_NONE, TITLE_EMPTY, TITLE_REAL
 };
@@ -914,6 +922,7 @@ void cleanup_exit(int);
     X(INT, NONE, zm_autorecv) \
     X(STR, NONE, zm_sendcmd)  \
     X(STR, NONE, zm_sendcmd_post)  \
+    X(INT, NONE, zm_drop_send_method) \
 
 /* Now define the actual enum of option keywords using that macro. */
 #define CONF_ENUM_DEF(valtype, keytype, keyword) CONF_ ## keyword,

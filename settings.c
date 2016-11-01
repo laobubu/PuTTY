@@ -690,6 +690,7 @@ void save_open_settings(void *sesskey, Conf *conf)
     write_setting_i(sesskey, "ZmodemAutoRecv", conf_get_int(conf, CONF_zm_autorecv));
     write_setting_s(sesskey, "ZmodemSendCmd", conf_get_str(conf, CONF_zm_sendcmd));
     write_setting_s(sesskey, "ZmodemSendCmdPost", conf_get_str(conf, CONF_zm_sendcmd_post));
+    write_setting_i(sesskey, "ZmodemDropSendMethod", conf_get_int(conf, CONF_zm_drop_send_method));
 }
 
 void load_settings(const char *section, Conf *conf)
@@ -1083,8 +1084,9 @@ void load_open_settings(void *sesskey, Conf *conf)
     /* zmodem & drag'n'drop */
     gppfile(sesskey, "ZmodemRz", conf, CONF_zm_rz);
     gppi(sesskey, "ZmodemAutoRecv", 0, conf, CONF_zm_autorecv);
-    gpps(sesskey, "ZmodemSendCmd", "rz", conf, CONF_zm_sendcmd);
+    gpps(sesskey, "ZmodemSendCmd", "rm -f &N", conf, CONF_zm_sendcmd);
     gpps(sesskey, "ZmodemSendCmdPost", "chmod a+x &N", conf, CONF_zm_sendcmd_post);
+    gppi(sesskey, "ZmodemDropSendMethod", SEND_WITH_SHELL, conf, CONF_zm_drop_send_method);
 }
 
 void do_defaults(const char *session, Conf *conf)

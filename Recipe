@@ -212,14 +212,16 @@ CFLAGS += -DWINVER=0x0500 -D_WIN32_WINDOWS=0x0410 -D_WIN32_WINNT=0x0500
 
 # Terminal emulator and its (platform-independent) dependencies.
 TERMINAL = terminal wcwidth ldiscucs logging tree234 minibidi
-         + config dialog conf
+         + config dialog conf subthd
 
 # GUI front end and terminal emulator (putty, puttytel).
 GUITERM  = TERMINAL window windlg winctrls sizetip winucs winprint
          + winutils wincfg sercfg zmodemcfg winhelp winjump miscucs winzmodem
+         + winsubthd
 
 # Same thing on Unix.
 UXTERM   = TERMINAL uxcfg sercfg zmodemcfg uxucs uxprint timing callback miscucs
+     + uxsubthd
 GTKTERM  = UXTERM gtkwin gtkcfg gtkdlg gtkfont gtkcols gtkmisc xkeysym
 	 + x11misc gtkcomm uxzmodem
 
