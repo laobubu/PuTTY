@@ -11,9 +11,16 @@
 static char buffer[2048], 
     *bufptr = buffer, 
     *bufptr_boundary = buffer + sizeof(buffer);
+static enum {
+    FLUSH_IDLE = 0,
+    FLUSH_PENDING,
+    FLUSH_SENDING
+} flushing = FLUSH_IDLE;
 
 void subthd_back_write(char * buf, int len)
 {
+    while (flushing != FLUSH_IDLE) subthd_sleep(10);
+
     if (bufptr + len >= bufptr_boundary) subthd_back_flush();
     memcpy(bufptr, buf, len);
     bufptr += len;
@@ -21,21 +28,29 @@ void subthd_back_write(char * buf, int len)
 
 void subthd_back_flush()
 {
+    while (flushing != FLUSH_IDLE) subthd_sleep(10);
+
+    if (bufptr == buffer) return;   // nothign to send. return.
+    flushing = FLUSH_PENDING;       // mark as pending to be sent
+}
+
+void subthd_back_flush_2()
+{
     Ldisc ldisc = ((Ldisc)term->ldisc);
     Backend *back = ldisc->back;
     void *backhandle = ldisc->backhandle;
 
-    volatile int sendbuf_left;
+    if (flushing == FLUSH_SENDING) {
+        // query status
+        if (back->sendbuffer(backhandle) <= 0) flushing = FLUSH_IDLE;
+    }
 
-    if (bufptr == buffer) return; //nothign to send
-    back->send(backhandle, buffer, bufptr - buffer);
-
-    do {
-        subthd_sleep(10);
-        sendbuf_left = back->sendbuffer(backhandle);
-    } while (sendbuf_left);
-
-    bufptr = buffer;
+    if (flushing == FLUSH_PENDING) {
+        // start send
+        back->send(backhandle, buffer, bufptr - buffer);
+        bufptr = buffer;
+        flushing = FLUSH_SENDING;
+    }
 }
 
 void subthd_back_read(char * buf, int len)

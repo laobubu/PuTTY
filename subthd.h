@@ -24,6 +24,7 @@ struct subthd_tag {
 /* from subthd.c */
 void subthd_back_write(char* buf, int len); // process-safe writing-to-end method
 void subthd_back_flush();
+void subthd_back_flush_2();  // DO NOT CALL THIS in a sub thread
 
 void subthd_back_read(char* buf, int len);
 void subthd_back_read_empty_buf();   // empty bufchain "inbuf2"
