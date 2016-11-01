@@ -154,7 +154,7 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
 #define tputs(str)  twrite(str, strlen(str))
     
     char *filename_base = strrchr(fn, PATH_SEPARATOR) + 1;
-    const int block_size = 1024;
+    const int block_size = 512 * 3;
 
     size_t len;
     long fsize;
@@ -178,7 +178,7 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
 
     tputs(" AZps1=$PS1; AZhc1=$HISTCONTROL; PS1='.'; HISTCONTROL=ignorespace; ");
     tputs(" rm -rf ");   tputs(filename_base);   tputs("; \n");
-    tputs(" AZupl () { printf \"\\r@@@\"; read a; (echo \"$a\" |xxd -r -p >>");
+    tputs(" AZupl () { printf \"\\r@@@\"; read a; (echo \"$a\" |base64 -d >>");
     tputs(filename_base);
     tputs("); echo -n \"~~~$1\"; } \n");
     subthd_back_flush();
@@ -203,9 +203,12 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
 
         unsigned char *readtmp = (unsigned char*)buf;
         len = fread(buf, 1, block_size, fp);
-        while (len--) {
-            sprintf(sendtmp, "%.2x", *readtmp++);
-            tputs(sendtmp);
+        while (1) {
+            base64_encode_atom(readtmp, (len > 3 ? 3 : len), sendtmp);
+            twrite(sendtmp, 4);
+
+            readtmp += 3;
+            if (len > 3) len -= 3; else break;
         }
 
         tputs("\n");

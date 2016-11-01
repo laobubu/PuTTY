@@ -43,7 +43,7 @@ void zm_setup_config_box(struct controlbox *b, int midsession)
         conf_radiobutton_handler,
         I(CONF_zm_drop_send_method),
         "lrzsz", I(SEND_WITH_LRZSZ),
-        "Send as Hex str, remote decodes with xxd(*)", I(SEND_WITH_SHELL),
+        "Send as base64, then decode remotely.(*)", I(SEND_WITH_SHELL),
         NULL);
     ctrl_text(s, "(*) Slow. Supports most Unix. Tested on sh/bash.", P(NULL));
 
