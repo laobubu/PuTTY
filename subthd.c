@@ -38,7 +38,7 @@ int subthd_extra_loop_process()
     return pending;
 }
 
-static inline void subthd_wait_for_writing()
+static void subthd_wait_for_writing()
 {
     while (flushing != FLUSH_IDLE) subthd_sleep(10);
 }

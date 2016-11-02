@@ -70,6 +70,5 @@ void run_toplevel_callbacks(void)
 
 int toplevel_callback_pending(void)
 {
-    int subthd_extra_loop_process();
-    return subthd_extra_loop_process() || (cbhead != NULL);
+    return cbhead != NULL;
 }

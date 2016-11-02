@@ -882,12 +882,14 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     term_set_focus(term, GetForegroundWindow() == hwnd);
     UpdateWindow(hwnd);
 
+    int subthd_extra_loop_process();
+
     while (1) {
 	HANDLE *handles;
 	int nhandles, n;
         DWORD timeout;
 
-        if (toplevel_callback_pending() ||
+        if (toplevel_callback_pending() || subthd_extra_loop_process() ||
             PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE)) {
             /*
              * If we have anything we'd like to do immediately, set
