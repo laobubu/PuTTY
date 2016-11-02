@@ -154,10 +154,11 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
 #define tputs(str)  twrite(str, strlen(str))
     
     char *filename_base = strrchr(fn, PATH_SEPARATOR) + 1;
-    const int block_size = 512 * 3;
+    const int block_size = 40960 * 3;
+    const int line_break = 128;  // *4 chars per line. bash cuts long lines :(
 
     size_t len;
-    long fsize;
+    long fsize, linecnt;
     char *buf;
     char sendtmp[64];
     unsigned char cycle_counter = ' ';
@@ -178,9 +179,9 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
 
     tputs(" AZps1=$PS1; AZhc1=$HISTCONTROL; PS1='.'; HISTCONTROL=ignorespace; ");
     tputs(" rm -rf ");   tputs(filename_base);   tputs("; \n");
-    tputs(" AZupl () { printf \"\\r@@@\"; read a; (echo \"$a\" |base64 -d >>");
+    tputs(" AZupl () { printf \"\\r@@@\"; base64 -d >>");
     tputs(filename_base);
-    tputs("); echo -n \"~~~$1\"; } \n");
+    tputs("; PS1=\"~~~$1\"; } \n");
     subthd_back_flush();
 
     while (!feof(fp)) {
@@ -203,15 +204,21 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
 
         unsigned char *readtmp = (unsigned char*)buf;
         len = fread(buf, 1, block_size, fp);
+        linecnt = 0;
         while (1) {
             base64_encode_atom(readtmp, (len > 3 ? 3 : len), sendtmp);
+
+            if (++linecnt >= line_break) {
+                linecnt = 0;
+                twrite("\n", 1);
+            }
             twrite(sendtmp, 4);
 
             readtmp += 3;
             if (len > 3) len -= 3; else break;
         }
 
-        tputs("\n");
+        tputs("\n\x4");
         subthd_back_flush();
 
         if (next_report_time <= time(NULL)) {
