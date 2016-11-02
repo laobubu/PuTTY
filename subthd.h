@@ -23,6 +23,7 @@ struct subthd_tag {
 
 /* from subthd.c */
 void subthd_back_write(char* buf, int len); // process-safe writing-to-end method
+void subthd_back_special(Telnet_Special);
 void subthd_back_flush();
 void subthd_back_flush_2();  // DO NOT CALL THIS in a sub thread
 

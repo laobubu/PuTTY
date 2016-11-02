@@ -8,30 +8,48 @@
 #include "ldisc.h"
 
 //sending to backend
+enum {
+    FLUSH_IDLE = 0,
+    FLUSH_PENDING,
+    FLUSH_PENDING_SPECIAL,
+    FLUSH_SENDING
+};
 static char buffer[2048], 
     *bufptr = buffer, 
     *bufptr_boundary = buffer + sizeof(buffer);
-static enum {
-    FLUSH_IDLE = 0,
-    FLUSH_PENDING,
-    FLUSH_SENDING
-} flushing = FLUSH_IDLE;
+static volatile unsigned char flushing = FLUSH_IDLE;
+static volatile Telnet_Special flushing_spec;
 
-void subthd_back_write(char * buf, int len)
+static inline void subthd_wait_for_writing()
 {
     while (flushing != FLUSH_IDLE) subthd_sleep(10);
+}
+
+void subthd_back_write(char * data, int len)
+{
+    subthd_wait_for_writing();
 
     if (bufptr + len >= bufptr_boundary) subthd_back_flush();
-    memcpy(bufptr, buf, len);
+    memcpy(bufptr, data, len);
     bufptr += len;
+}
+
+void subthd_back_special(Telnet_Special s)
+{
+    subthd_wait_for_writing();
+
+    flushing_spec = s;
+    flushing = FLUSH_PENDING_SPECIAL;
+    subthd_wait_for_writing();
 }
 
 void subthd_back_flush()
 {
-    while (flushing != FLUSH_IDLE) subthd_sleep(10);
+    subthd_wait_for_writing();
 
-    if (bufptr == buffer) return;   // nothign to send. return.
+    if (bufptr == buffer) return;   // if nothign to send, return.
     flushing = FLUSH_PENDING;       // mark as pending to be sent
+    subthd_wait_for_writing();      // then wait until wrote
 }
 
 void subthd_back_flush_2()
@@ -39,17 +57,25 @@ void subthd_back_flush_2()
     Ldisc ldisc = ((Ldisc)term->ldisc);
     Backend *back = ldisc->back;
     void *backhandle = ldisc->backhandle;
+    unsigned char fstatus = flushing;
 
-    if (flushing == FLUSH_SENDING) {
+    switch(fstatus) {
+    case FLUSH_SENDING:
         // query status
         if (back->sendbuffer(backhandle) <= 0) flushing = FLUSH_IDLE;
-    }
+        break;
+    
+    case FLUSH_PENDING_SPECIAL:
+        back->special(backhandle, flushing_spec);
+        flushing = FLUSH_IDLE;
+        break;
 
-    if (flushing == FLUSH_PENDING) {
+    case FLUSH_PENDING:
         // start send
         back->send(backhandle, buffer, bufptr - buffer);
         bufptr = buffer;
         flushing = FLUSH_SENDING;
+        break;
     }
 }
 
