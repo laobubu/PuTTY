@@ -25,11 +25,13 @@ struct subthd_tag {
 void subthd_back_write(char* buf, int len); // process-safe writing-to-end method
 void subthd_back_special(Telnet_Special);
 void subthd_back_flush();
-void subthd_back_flush_2();  // DO NOT CALL THIS in a sub thread
 
 void subthd_back_read(char* buf, int len);
 void subthd_back_read_empty_buf();   // empty bufchain "inbuf2"
 int  subthd_back_read_buflen();
+
+int subthd_extra_loop_process();     // put this into main loop
+int subthd_back_flush_2();  // DO NOT CALL THIS in a sub thread
 
 /* from platform impl */
 void subthd_start(subthd_func func, void *userdata);

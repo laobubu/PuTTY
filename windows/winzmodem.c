@@ -154,17 +154,18 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
 #define tputs(str)  twrite(str, strlen(str))
     
     char *filename_base = strrchr(fn, PATH_SEPARATOR) + 1;
-    const int block_size = 40960 * 3;
+    const int block_size = (1024 * 64) * 3;
     const int line_break = 128;  // *4 chars per line. bash cuts long lines :(
 
     size_t len;
     long fsize, linecnt;
     char *buf;
     char sendtmp[64];
-    unsigned char cycle_counter = ' ';
     FILE* fp = fopen(fn, "rb");
     
     time_t next_report_time = 0;
+    time_t transfer_since = time(NULL);
+    long last_report_fpos = 0;
     const int report_interval = 1;
 
     subthd_back_read_empty_buf();
@@ -177,32 +178,38 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
     tputs(" stty -echo;\n");
     subthd_back_flush();
 
-    tputs(" AZps1=$PS1; AZhc1=$HISTCONTROL; PS1='.'; HISTCONTROL=ignorespace; ");
-    tputs(" rm -rf ");   tputs(filename_base);   tputs("; \n");
-    tputs(" AZupl () { printf \"\\r@@@\"; base64 -d >>");
-    tputs(filename_base);
-    tputs("; PS1=\"~~~$1\"; } \n");
+    subthd_back_read_empty_buf();
+    tputs(" AZps1=$PS1; AZhc1=$HISTCONTROL; PS1='.'; HISTCONTROL=ignorespace; \n");
+    tputs(" read AZfn1 && rm -rf \"$AZfn1\" \n");
+    subthd_back_flush();
+    
+    while (subthd_back_read_buflen() <= 0) subthd_sleep(10);
+    tputs(filename_base); tputs("\n");
     subthd_back_flush();
 
-    while (!feof(fp)) {
-        if (++cycle_counter >= '~') cycle_counter = ' '; // use printable ASCII chars, skip '~'
-        if (cycle_counter == '\\') cycle_counter++;      // skip '\\'
-        if (cycle_counter == '\'') cycle_counter++;      // skip '\''
+    while (subthd_back_read_buflen() <= 0) subthd_sleep(10);
+    tputs(" AZupl () { printf '\\r\\x8\\r@@@'; base64 -d >>\"$AZfn1\" ; } \n");
 
-        sprintf(sendtmp, " AZupl '%c'\n", cycle_counter);
-        tputs(sendtmp);
+    while (!feof(fp)) {
+        unsigned char *readtmp = (unsigned char*)buf;
+
+        // start a transfer
+        
+        tputs(" AZupl \n");
+        subthd_back_read_empty_buf();
         subthd_back_flush();
+        
+        // wait for continous 3 '@'
 
         int at_striking = 0;
         while (1) {
-            while (subthd_back_read_buflen() <= 0) subthd_sleep(10);
             subthd_back_read(buf, 1);
-
             if (*buf == '@') { if (++at_striking == 3) break; }
             else at_striking = 0;
         }
 
-        unsigned char *readtmp = (unsigned char*)buf;
+        // send file part
+
         len = fread(buf, 1, block_size, fp);
         linecnt = 0;
         while (1) {
@@ -214,43 +221,38 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
             }
             twrite(sendtmp, 4);
 
+            if (next_report_time <= time(NULL)) {
+                long fpos = (ftell(fp) - len);
+                int slen = sprintf(sendtmp,
+                    " %.2fkB/s %3d%%",
+                    (float)(fpos - last_report_fpos) / 1000.f / (time(NULL) + report_interval - next_report_time),
+                    (int)(fpos * 100 / fsize)
+                );
+                memcpy(sendtmp + slen, sendtmp, slen + 1);
+                memset(sendtmp, 8, slen);
+                from_backend(term, 1, sendtmp, slen * 2);
+                next_report_time = time(NULL) + report_interval;
+                last_report_fpos = fpos;
+            }
+
             readtmp += 3;
             if (len > 3) len -= 3; else break;
         }
 
         tputs("\n\x4");
         subthd_back_flush();
-
-        if (next_report_time <= time(NULL)) {
-            next_report_time = time(NULL) + report_interval;
-            sprintf(sendtmp, "%3d%%", (int)(ftell(fp) * 100 / fsize));
-            from_backend(term, 1, "\x8\x8\x8\x8", 4);
-            from_backend(term, 1, sendtmp, 4);
-        }
-
-        // waiting for "\r\r\r\r\r" as the ACK
-        int cr_striking = 0;
-        while (1) {
-            while (subthd_back_read_buflen() <= 0) subthd_sleep(10);
-            subthd_back_read(buf, 1);
-            
-            if (*buf == '~') cr_striking++;
-            else {
-                if (cr_striking >= 3) {
-                    if (*(unsigned char*)buf == cycle_counter)  break;
-
-                    sprintf(sendtmp, "\r\nWrong cycle tag! got %.2x, expected %.2x \n\r\x8\x8\x8\x8", *(unsigned char*)buf, (int)cycle_counter);
-                    from_backend(term, 1, sendtmp, strlen(sendtmp));
-                }
-                cr_striking = 0;
-            }
-        }
     }
 
     tputs(" PS1=$AZps1; HISTCONTROL=$AZhc1; printf \"\\r\"; stty echo; \n");
     subthd_back_flush();
 
-    from_backend(term, 1, "\x8\x8\x8\x8(OK)", 8);
+    int slen = sprintf(sendtmp,
+        " %.2fkB/s (OK)",
+        (float)fsize / 1000.f / (time(NULL) - transfer_since)
+    );
+    memcpy(sendtmp + slen, sendtmp, slen + 1);
+    memset(sendtmp, 8, slen);
+    from_backend(term, 1, sendtmp, slen * 2);
 
     fclose(fp);
     sfree(buf);
@@ -290,6 +292,12 @@ int xyz_sending_thread(void* userdata)
 
     term->inbuf2_enabled = 1;
     subthd_sleep(200);
+
+    const char bug_tip_msg[] = 
+        "\r\n[!] Move your mouse around to speed up."
+        "\r\n    This bug will be fixed in future."
+    ;
+    from_backend(term, 1, bug_tip_msg, sizeof(bug_tip_msg) - 1);
 
     while (1) {
         if ((fns = strchr(fnprev, '\n')) == NULL) break; // "\n\0" or 

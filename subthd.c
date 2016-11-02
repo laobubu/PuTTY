@@ -14,11 +14,29 @@ enum {
     FLUSH_PENDING_SPECIAL,
     FLUSH_SENDING
 };
-static char buffer[2048], 
+static char buffer[10240], 
     *bufptr = buffer, 
     *bufptr_boundary = buffer + sizeof(buffer);
 static volatile unsigned char flushing = FLUSH_IDLE;
 static volatile Telnet_Special flushing_spec;
+
+// inject extra loop work into the mainloop
+int subthd_extra_loop_process()
+{
+    Ldisc ldisc = ((Ldisc)term->ldisc);
+    Backend *back = ldisc->back;
+    void *backhandle = ldisc->backhandle;
+
+    int  xyz_Process(Backend *back, void *backhandle, Terminal *term);
+
+    // non-zero if need to be in the main loop
+    int pending = 0
+        + xyz_Process(back, backhandle, term)
+        + subthd_back_flush_2()
+        ;
+
+    return pending;
+}
 
 static inline void subthd_wait_for_writing()
 {
@@ -49,10 +67,11 @@ void subthd_back_flush()
 
     if (bufptr == buffer) return;   // if nothign to send, return.
     flushing = FLUSH_PENDING;       // mark as pending to be sent
+
     subthd_wait_for_writing();      // then wait until wrote
 }
 
-void subthd_back_flush_2()
+int subthd_back_flush_2()
 {
     Ldisc ldisc = ((Ldisc)term->ldisc);
     Backend *back = ldisc->back;
@@ -76,11 +95,18 @@ void subthd_back_flush_2()
         bufptr = buffer;
         flushing = FLUSH_SENDING;
         break;
+
+    case FLUSH_IDLE:
+        return 0;   // this function does not work yet
     }
+
+    return 1;
 }
 
 void subthd_back_read(char * buf, int len)
 {
+    while (subthd_back_read_buflen() < len) subthd_sleep(10);
+
     subthd_mutex_lock(term->inbuf2_mutex, 0);
 
     bufchain_fetch(&term->inbuf2, buf, len);

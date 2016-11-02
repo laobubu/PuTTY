@@ -20,12 +20,6 @@
 #include "storage.h"
 #include "win_res.h"
 #include "winsecur.h"
-#include "subthd.h"
-
-int  xyz_Process(Backend *back, void *backhandle, Terminal *term);
-void xyz_ReceiveInit(Terminal *term);
-void xyz_StartSending(Terminal *term, char* fns);
-void xyz_Cancel(Terminal *term);
 
 #ifndef NO_MULTIMON
 #include <multimon.h>
@@ -960,8 +954,6 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
                 break;
 	}
 
-        xyz_Process(back, backhandle, term);
-        subthd_back_flush_2();
         run_toplevel_callbacks();
     }
 
