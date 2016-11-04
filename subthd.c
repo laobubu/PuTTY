@@ -7,18 +7,16 @@
 #include "terminal.h"
 #include "ldisc.h"
 
-//sending to backend
-enum {
-    FLUSH_IDLE = 0,
-    FLUSH_PENDING,
-    FLUSH_PENDING_SPECIAL,
-    FLUSH_SENDING
+#define cache_count 16
+
+struct cache_part {
+    void *data;
+    unsigned long len;
 };
-static char buffer[10240], 
-    *bufptr = buffer, 
-    *bufptr_boundary = buffer + sizeof(buffer);
-static volatile unsigned char flushing = FLUSH_IDLE;
-static volatile Telnet_Special flushing_spec;
+
+int i_sent = 0, i_cache = 0;
+struct cache_part* cache[cache_count];
+int cache_sp = -1; // only one Telnet_Special
 
 // inject extra loop work into the mainloop
 int subthd_extra_loop_process()
@@ -40,35 +38,38 @@ int subthd_extra_loop_process()
 
 static void subthd_wait_for_writing()
 {
-    while (flushing != FLUSH_IDLE) subthd_sleep(10);
+    // wait until there is a empty buffer
+    while ((i_sent == 0 && i_cache == cache_count - 1) || (i_cache == i_sent - 1)) 
+        subthd_sleep(10);
 }
 
 void subthd_back_write(char * data, int len)
 {
     subthd_wait_for_writing();
 
-    if (bufptr + len >= bufptr_boundary) subthd_back_flush();
-    memcpy(bufptr, data, len);
-    bufptr += len;
+    void *newcache = smalloc(len);
+    memcpy(newcache, data, len);
+
+    struct cache_part* newpt = snew(struct cache_part);
+    newpt->data = newcache;
+    newpt->len = len;
+
+    int next_room = i_cache == (cache_count - 1) ? 0 : (i_cache + 1);
+    cache[next_room] = newpt;
+    i_cache = next_room;
 }
 
 void subthd_back_special(Telnet_Special s)
 {
-    subthd_wait_for_writing();
-
-    flushing_spec = s;
-    flushing = FLUSH_PENDING_SPECIAL;
-    subthd_wait_for_writing();
+    cache_sp = s;
+    while (cache_sp != -1)
+        subthd_sleep(10);
 }
 
 void subthd_back_flush()
 {
-    subthd_wait_for_writing();
-
-    if (bufptr == buffer) return;   // if nothign to send, return.
-    flushing = FLUSH_PENDING;       // mark as pending to be sent
-
-    subthd_wait_for_writing();      // then wait until wrote
+    while (i_sent != i_cache) 
+        subthd_sleep(10);
 }
 
 int subthd_back_flush_2()
@@ -76,28 +77,19 @@ int subthd_back_flush_2()
     Ldisc ldisc = ((Ldisc)term->ldisc);
     Backend *back = ldisc->back;
     void *backhandle = ldisc->backhandle;
-    unsigned char fstatus = flushing;
-
-    switch(fstatus) {
-    case FLUSH_SENDING:
-        // query status
-        if (back->sendbuffer(backhandle) <= 0) flushing = FLUSH_IDLE;
-        break;
     
-    case FLUSH_PENDING_SPECIAL:
-        back->special(backhandle, flushing_spec);
-        flushing = FLUSH_IDLE;
-        break;
+    if (cache_sp != -1) {
+        back->special(backhandle, cache_sp);
+        cache_sp = -1;
+    }
 
-    case FLUSH_PENDING:
-        // start send
-        back->send(backhandle, buffer, bufptr - buffer);
-        bufptr = buffer;
-        flushing = FLUSH_SENDING;
-        break;
-
-    case FLUSH_IDLE:
-        return 0;   // this function does not work yet
+    if (!back->sendbuffer(backhandle) && i_sent != i_cache) {
+        int next_sent = i_sent == (cache_count - 1) ? 0 : (i_sent + 1);
+        struct cache_part *cp = cache[next_sent];
+        back->send(backhandle, cp->data, cp->len);
+        sfree(cp->data);
+        sfree(cp);
+        i_sent = next_sent;
     }
 
     return 1;

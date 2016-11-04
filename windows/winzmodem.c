@@ -156,6 +156,14 @@ void xyz_ReceiveInit(Terminal *term)
 #define TIMELIMITED_LOOP_END()              } \
                                         }
 
+typedef struct pool_tag { char* data, *ptr; int cap; } pool_t;
+void pool_init(pool_t *p, int cap) { p->data = p->ptr = smalloc(cap); p->cap = cap; }
+int pool_capable(pool_t *p, int len) { return p->ptr - p->data <= p->cap - len; }   // check if there is enough space
+void pool_push(pool_t *p, void* data, int len) { memcpy(p->ptr, data, len); p->ptr += len; }
+void pool_reset(pool_t *p) { p->ptr = p->data; }
+void pool_free(pool_t *p) { sfree(p->data); }
+int pool_len(pool_t *p) { return p->ptr - p->data; }
+
 // send file with unix xxd command
 // assuming term->inbuf2 is enabled and ready
 static void xyz_sendFileWithXxd(Terminal *term, char* fn)
@@ -223,16 +231,25 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
 
         // send file part
 
+        pool_t *psend = snew(pool_t);
         len = fread(buf, 1, block_size, fp);
         linecnt = 0;
+
+        pool_init(psend, 1024);
+
         while (1) {
             base64_encode_atom(readtmp, (len > 3 ? 3 : len), sendtmp);
 
+            if (!pool_capable(psend, 5)) {
+                twrite(psend->data, pool_len(psend));
+                pool_reset(psend);
+            }
+
             if (++linecnt >= line_break) {
                 linecnt = 0;
-                twrite("\n", 1);
+                pool_push(psend, "\n", 1);
             }
-            twrite(sendtmp, 4);
+            pool_push(psend, sendtmp, 4);
 
             if (next_report_time <= time(NULL)) {
                 long fpos = (ftell(fp) - len);
@@ -252,8 +269,13 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
             if (len > 3) len -= 3; else break;
         }
 
+        if (pool_len(psend)) {
+            twrite(psend->data, pool_len(psend));
+            pool_reset(psend);
+        }
+        pool_free(psend);
+
         tputs("\n\x4");
-        subthd_back_flush();
     }
 
     int slen;
