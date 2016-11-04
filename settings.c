@@ -686,7 +686,8 @@ void save_open_settings(void *sesskey, Conf *conf)
     write_setting_i(sesskey, "ConnectionSharingDownstream", conf_get_int(conf, CONF_ssh_connection_sharing_downstream));
     wmap(sesskey, "SSHManualHostKeys", conf, CONF_ssh_manual_hostkeys, FALSE);
 
-    write_setting_filename(sesskey, "ZmodemRz", conf_get_filename(conf, CONF_zm_rz));
+    write_setting_s(sesskey, "ZmodemRz", conf_get_str(conf, CONF_zm_rz));
+    write_setting_s(sesskey, "ZmodemSz", conf_get_str(conf, CONF_zm_sz));
     write_setting_i(sesskey, "ZmodemAutoRecv", conf_get_int(conf, CONF_zm_autorecv));
     write_setting_s(sesskey, "ZmodemSendCmd", conf_get_str(conf, CONF_zm_sendcmd));
     write_setting_s(sesskey, "ZmodemSendCmdPost", conf_get_str(conf, CONF_zm_sendcmd_post));
@@ -1081,8 +1082,15 @@ void load_open_settings(void *sesskey, Conf *conf)
     gppi(sesskey, "ConnectionSharingDownstream", 1, conf, CONF_ssh_connection_sharing_downstream);
     gppmap(sesskey, "SSHManualHostKeys", conf, CONF_ssh_manual_hostkeys);
 
+#ifdef _WIN32
+#define EXEC_SUFFIX ".exe"
+#else
+#define EXEC_SUFFIX ""
+#endif
+
     /* zmodem & drag'n'drop */
-    gppfile(sesskey, "ZmodemRz", conf, CONF_zm_rz);
+    gpps(sesskey, "ZmodemRz", "rz" EXEC_SUFFIX " ", conf, CONF_zm_rz);
+    gpps(sesskey, "ZmodemSz", "sz" EXEC_SUFFIX " -v ", conf, CONF_zm_sz);
     gppi(sesskey, "ZmodemAutoRecv", 0, conf, CONF_zm_autorecv);
     gpps(sesskey, "ZmodemSendCmd", "rm -f &N", conf, CONF_zm_sendcmd);
     gpps(sesskey, "ZmodemSendCmdPost", "chmod a+x &N", conf, CONF_zm_sendcmd_post);

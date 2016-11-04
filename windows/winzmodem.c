@@ -9,7 +9,7 @@
 #include "ldisc.h"
 #include "subthd.h"
 
-#define SZ_STALL_TIME 5
+#define SZ_STALL_TIME 15
 
 #if defined(WIN32) || defined(_WIN32) 
 #define PATH_SEPARATOR '\\'
@@ -23,7 +23,7 @@ static int xyz_SpawnProcess(Terminal *term, const char *incommand, const char *i
 static int xyz_Check(Backend *back, void *backhandle, Terminal *term, int outerr);
 
 #define MAX_UPLOAD_FILES 512
-#define PIPE_SIZE (64*1024)
+#define PIPE_SIZE 0
 
 struct zModemInternals {
     PROCESS_INFORMATION pi;
@@ -64,7 +64,7 @@ void xyz_Done(Terminal *term)
                 Ldisc ldisc = ((Ldisc)term->ldisc);
                 ldisc->back->send(ldisc->backhandle, canit, sizeof canit);
 
-                const char errmsg[] = "\r[PuTTY] stalling zmodem detected. ";
+                const char errmsg[] = "\r[PuTTY] stalling zmodem detected. \r\n";
                 from_backend(term, 1, errmsg, sizeof(errmsg) - 1);
             }
             sfree(term->xyz_Internals);
@@ -146,6 +146,16 @@ void xyz_ReceiveInit(Terminal *term)
     }
 }
 
+#define TIMELIMITED_LOOP_BEGIN(timeout) { \
+                                            time_t _tend = time(NULL) + (timeout); \
+                                            while (time(NULL) < _tend) {    \
+                                                // add your loop stuff here. remember to call break;
+#define TIMELIMITED_LOOP_TIMEOUT()          } \
+                                            if (_tend < time(NULL)) {  \
+                                                // add timeout handler here
+#define TIMELIMITED_LOOP_END()              } \
+                                        }
+
 // send file with unix xxd command
 // assuming term->inbuf2 is enabled and ready
 static void xyz_sendFileWithXxd(Terminal *term, char* fn)
@@ -159,6 +169,7 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
 
     size_t len;
     long fsize, linecnt;
+    float _div_fsize_percent;  // = 100.0f / fsize . used to calculate progress
     char *buf;
     char sendtmp[64];
     FILE* fp = fopen(fn, "rb");
@@ -173,7 +184,7 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
     buf = snmalloc(1, block_size);
 
     fseek(fp, 0, SEEK_END); fsize = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
+    fseek(fp, 0, SEEK_SET); _div_fsize_percent = 100.0f / fsize;
 
     tputs(" stty -echo;\n");
     subthd_back_flush();
@@ -202,11 +213,13 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
         // wait for continous 3 '@'
 
         int at_striking = 0;
-        while (1) {
+        TIMELIMITED_LOOP_BEGIN(10)
             subthd_back_read(buf, 1);
             if (*buf == '@') { if (++at_striking == 3) break; }
             else at_striking = 0;
-        }
+        TIMELIMITED_LOOP_TIMEOUT()
+            goto timeout;
+        TIMELIMITED_LOOP_END()
 
         // send file part
 
@@ -226,7 +239,7 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
                 int slen = sprintf(sendtmp,
                     " %.2fkB/s %3d%%",
                     (float)(fpos - last_report_fpos) / 1000.f / (time(NULL) + report_interval - next_report_time),
-                    (int)(fpos * 100 / fsize)
+                    (int)(fpos * _div_fsize_percent)
                 );
                 memcpy(sendtmp + slen, sendtmp, slen + 1);
                 memset(sendtmp, 8, slen);
@@ -243,19 +256,28 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
         subthd_back_flush();
     }
 
-    tputs(" PS1=$AZps1; HISTCONTROL=$AZhc1; printf \"\\r\"; stty echo; \n");
-    subthd_back_flush();
-
-    int slen = sprintf(sendtmp,
+    int slen;
+    slen = sprintf(sendtmp,
         " %.2fkB/s (OK)",
         (float)fsize / 1000.f / (time(NULL) - transfer_since)
     );
-    memcpy(sendtmp + slen, sendtmp, slen + 1);
+
+tidyup:
+    memcpy(sendtmp + slen * 2, "\r\n", 3);
+    memcpy(sendtmp + slen, sendtmp, slen);
     memset(sendtmp, 8, slen);
     from_backend(term, 1, sendtmp, slen * 2);
 
+    tputs(" PS1=$AZps1; HISTCONTROL=$AZhc1; printf \"\\r\"; stty echo; \n");
+    subthd_back_flush();
     fclose(fp);
     sfree(buf);
+
+    return;
+
+timeout:
+    slen = sprintf(sendtmp, " Stopped. (Timeout)");
+    goto tidyup;
 
 #undef twrite
 #undef tputs
@@ -293,12 +315,6 @@ int xyz_sending_thread(void* userdata)
     term->inbuf2_enabled = 1;
     subthd_sleep(200);
 
-    const char bug_tip_msg[] = 
-        "\r\n[!] Move your mouse around to speed up."
-        "\r\n    This bug will be fixed in future."
-    ;
-    from_backend(term, 1, bug_tip_msg, sizeof(bug_tip_msg) - 1);
-
     while (1) {
         if ((fns = strchr(fnprev, '\n')) == NULL) break; // "\n\0" or 
         if (fns == fnprev) break;           // "\n\n" as the end of list
@@ -330,10 +346,8 @@ int xyz_sending_thread(void* userdata)
 
 void xyz_StartSending_sz(Terminal *term, char* fns)
 {
-    char sz_path[MAX_PATH] = "sz.exe -v"; //FIXME: read from conf
+    char *sz_path = conf_get_str(term->conf, CONF_zm_sz);
     char sz_full_params[32767], *param_ptr = sz_full_params;
-
-    filename_to_str(conf_get_filename(term->conf, CONF_zm_rz));
 
     char* fnprev = fns; // the beginning of current filename
     int fnlen;

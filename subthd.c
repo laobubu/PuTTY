@@ -24,18 +24,18 @@ static volatile Telnet_Special flushing_spec;
 int subthd_extra_loop_process()
 {
     Ldisc ldisc = ((Ldisc)term->ldisc);
+
+    if (!ldisc) return 0;
+
     Backend *back = ldisc->back;
     void *backhandle = ldisc->backhandle;
 
     int  xyz_Process(Backend *back, void *backhandle, Terminal *term);
 
-    // non-zero if need to be in the main loop
-    int pending = 0
-        + xyz_Process(back, backhandle, term)
-        + subthd_back_flush_2()
-        ;
+    xyz_Process(back, backhandle, term);     //ZModem handler
+    subthd_back_flush_2();                   //subthd_back_write handler
 
-    return pending;
+    return term->xyz_transfering || term->inbuf2_enabled;
 }
 
 static void subthd_wait_for_writing()

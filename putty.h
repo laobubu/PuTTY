@@ -918,7 +918,8 @@ void cleanup_exit(int);
     X(INT, NONE, crhaslf) \
     X(STR, NONE, winclass) \
     /* Options for lrzsz */ \
-    X(FILENAME, NONE, zm_rz)  \
+    X(STR, NONE, zm_rz)  \
+    X(STR, NONE, zm_sz)  \
     X(INT, NONE, zm_autorecv) \
     X(STR, NONE, zm_sendcmd)  \
     X(STR, NONE, zm_sendcmd_post)  \
