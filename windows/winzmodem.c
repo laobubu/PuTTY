@@ -156,23 +156,17 @@ void xyz_ReceiveInit(Terminal *term)
 #define TIMELIMITED_LOOP_END()              } \
                                         }
 
-typedef struct pool_tag { char* data, *ptr; int cap; } pool_t;
-void pool_init(pool_t *p, int cap) { p->data = p->ptr = smalloc(cap); p->cap = cap; }
-int pool_capable(pool_t *p, int len) { return p->ptr - p->data <= p->cap - len; }   // check if there is enough space
-void pool_push(pool_t *p, void* data, int len) { memcpy(p->ptr, data, len); p->ptr += len; }
-void pool_reset(pool_t *p) { p->ptr = p->data; }
-void pool_free(pool_t *p) { sfree(p->data); }
-int pool_len(pool_t *p) { return p->ptr - p->data; }
-
 // send file with unix xxd command
 // assuming term->inbuf2 is enabled and ready
 static void xyz_sendFileWithXxd(Terminal *term, char* fn)
 {
 #define twrite(buf, len) subthd_back_write(buf, len)
 #define tputs(str)  twrite(str, strlen(str))
-    
+#define failed(message) do { fail_info = message; goto final_step; } while(0)
+
+    char *fail_info = NULL;
     char *filename_base = strrchr(fn, PATH_SEPARATOR) + 1;
-    const int block_size = (1024 * 64) * 3;
+    const int block_size = (1024 * 32) * 3; //FIXME: Too big blocks may cause SSH problem (ssh.c:1728)
     const int line_break = 128;  // *4 chars per line. bash cuts long lines :(
 
     size_t len;
@@ -197,17 +191,23 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
     tputs(" stty -echo;\n");
     subthd_back_flush();
 
-    subthd_back_read_empty_buf();
-    tputs(" AZps1=$PS1; AZhc1=$HISTCONTROL; PS1='.'; HISTCONTROL=ignorespace; \n");
+    tputs(" AZps1=$PS1; AZhc1=$HISTCONTROL; PS1='&'; HISTCONTROL=ignorespace; \n");
     tputs(" read AZfn1 && rm -rf \"$AZfn1\" \n");
+    subthd_back_read_empty_buf();
     subthd_back_flush();
-    
-    while (subthd_back_read_buflen() <= 0) subthd_sleep(10);
+
+    while (1) {
+        if (!subthd_back_wait(1, 5)) failed("Timeout before FILENAME");
+        subthd_back_read(buf, 1); if (*buf == '&') break;
+    }
     tputs(filename_base); tputs("\n");
     subthd_back_flush();
 
-    while (subthd_back_read_buflen() <= 0) subthd_sleep(10);
-    tputs(" AZupl () { printf '\\r\\x8\\r@@@'; base64 -d >>\"$AZfn1\" ; } \n");
+    while (1) {
+        if (!subthd_back_wait(1, 5)) failed("Timeout after FILENAME");
+        subthd_back_read(buf, 1); if (*buf == '&') break;
+    }
+    tputs("\n AZupl () { printf '\\r\\x8\\r@@@'; base64 -d >>\"$AZfn1\" ; } \n");
 
     while (!feof(fp)) {
         unsigned char *readtmp = (unsigned char*)buf;
@@ -221,35 +221,26 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
         // wait for continous 3 '@'
 
         int at_striking = 0;
-        TIMELIMITED_LOOP_BEGIN(10)
+        while (1) {
+            if (!subthd_back_wait(1, 5)) failed("Timeout before block");
             subthd_back_read(buf, 1);
             if (*buf == '@') { if (++at_striking == 3) break; }
             else at_striking = 0;
-        TIMELIMITED_LOOP_TIMEOUT()
-            goto timeout;
-        TIMELIMITED_LOOP_END()
+        }
 
         // send file part
 
-        pool_t *psend = snew(pool_t);
         len = fread(buf, 1, block_size, fp);
         linecnt = 0;
-
-        pool_init(psend, 1024);
 
         while (1) {
             base64_encode_atom(readtmp, (len > 3 ? 3 : len), sendtmp);
 
-            if (!pool_capable(psend, 5)) {
-                twrite(psend->data, pool_len(psend));
-                pool_reset(psend);
-            }
-
             if (++linecnt >= line_break) {
                 linecnt = 0;
-                pool_push(psend, "\n", 1);
+                twrite("\n", 1);
             }
-            pool_push(psend, sendtmp, 4);
+            twrite(sendtmp, 4);
 
             if (next_report_time <= time(NULL)) {
                 long fpos = (ftell(fp) - len);
@@ -269,22 +260,22 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
             if (len > 3) len -= 3; else break;
         }
 
-        if (pool_len(psend)) {
-            twrite(psend->data, pool_len(psend));
-            pool_reset(psend);
-        }
-        pool_free(psend);
-
         tputs("\n\x4");
+        subthd_back_flush();
     }
 
     int slen;
-    slen = sprintf(sendtmp,
-        " %.2fkB/s (OK)",
-        (float)fsize / 1000.f / (time(NULL) - transfer_since)
-    );
 
-tidyup:
+final_step:
+
+    if (!fail_info) {
+        slen = sprintf(sendtmp,
+            " %.2fkB/s (OK)",
+            (float)fsize / 1000.f / (time(NULL) - transfer_since)
+        );
+    } else {
+        slen = sprintf(sendtmp, " %s (ERR)", fail_info);
+    }
     memcpy(sendtmp + slen * 2, "\r\n", 3);
     memcpy(sendtmp + slen, sendtmp, slen);
     memset(sendtmp, 8, slen);
@@ -294,12 +285,6 @@ tidyup:
     subthd_back_flush();
     fclose(fp);
     sfree(buf);
-
-    return;
-
-timeout:
-    slen = sprintf(sendtmp, " Stopped. (Timeout)");
-    goto tidyup;
 
 #undef twrite
 #undef tputs

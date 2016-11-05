@@ -27,6 +27,7 @@ void subthd_back_special(Telnet_Special);
 void subthd_back_flush();
 
 void subthd_back_read(char* buf, int len);
+int subthd_back_wait(int len, int timeout); // wait for enough length of data available
 void subthd_back_read_empty_buf();   // empty bufchain "inbuf2"
 int  subthd_back_read_buflen();
 

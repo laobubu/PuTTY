@@ -412,7 +412,7 @@ static void ssh2_msg_something_unimplemented(Ssh ssh, struct Packet *pktin);
 #define OUR_V2_WINSIZE 16384
 #define OUR_V2_BIGWIN 0x7fffffff
 #define OUR_V2_MAXPKT 0x4000UL
-#define OUR_V2_PACKETLIMIT 0x9000UL
+#define OUR_V2_PACKETLIMIT 0x20000UL
 
 struct ssh_signkey_with_user_pref_id {
     const struct ssh_signkey *alg;

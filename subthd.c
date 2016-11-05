@@ -2,20 +2,30 @@
  * platform-independent sub thread executor
  */
 
+#include <assert.h>
+
 #include "putty.h"
 #include "subthd.h"
 #include "terminal.h"
 #include "ldisc.h"
 
+//FIXME: SSH may fail due to OUR_V2_PACKETLIMIT
 #define cache_count 16
+#define POOL_SIZE 4096
 
-struct cache_part {
-    void *data;
-    unsigned long len;
-};
+typedef struct pool_tag { char* data, *ptr; int cap; } pool_t;
+void pool_init(pool_t *p, int cap) { p->data = p->ptr = smalloc(cap); p->cap = cap; }
+int pool_capable(pool_t *p, int len) { return p->ptr - p->data <= p->cap - len; }   // check if there is enough space
+void pool_push(pool_t *p, void* data, int len) { memcpy(p->ptr, data, len); p->ptr += len; }
+void pool_reset(pool_t *p) { p->ptr = p->data; }
+void pool_free(pool_t *p) { sfree(p->data); }
+int pool_len(pool_t *p) { return p->ptr - p->data; }
 
-int i_sent = 0, i_cache = 0;
-struct cache_part* cache[cache_count];
+int i_sent = 0, i_to_send = 0, i_cache = -1; 
+    // i_sent   : the pool that alrady sent
+    // i_to_send: keep sending until this pool is sent
+    // i_cache  : currently not fully filled pool. -1 means not inited.
+struct pool_tag* cache[cache_count] = { NULL };
 int cache_sp = -1; // only one Telnet_Special
 
 // inject extra loop work into the mainloop
@@ -36,27 +46,42 @@ int subthd_extra_loop_process()
     return term->xyz_transfering || term->inbuf2_enabled;
 }
 
-static void subthd_wait_for_writing()
+static void subthd_create_next_pool()
 {
-    // wait until there is a empty buffer
-    while ((i_sent == 0 && i_cache == cache_count - 1) || (i_cache == i_sent - 1)) 
+    // end (and queue) current pool and create next pool
+    int next_i_cache, next_i_to_send;
+
+    assert(i_cache != -1);
+
+    next_i_to_send = i_cache;
+    next_i_cache = (i_cache == cache_count - 1) ? 0 : (i_cache + 1);
+    while (i_sent == next_i_cache)
         subthd_sleep(10);
+
+    if (!cache[next_i_cache]) {
+        pool_t *newpool = snew(pool_t);
+        pool_init(newpool, POOL_SIZE);
+        cache[next_i_cache] = newpool;
+    }
+
+    i_cache = next_i_cache;
+    i_to_send = next_i_to_send;
 }
 
 void subthd_back_write(char * data, int len)
 {
-    subthd_wait_for_writing();
+    if (i_cache == -1) {
+        pool_t *newpool = snew(pool_t);
+        pool_init(newpool, POOL_SIZE);
+        cache[1] = newpool;
+        i_cache = 1;
+    }
 
-    void *newcache = smalloc(len);
-    memcpy(newcache, data, len);
+    if (!pool_capable(cache[i_cache], len)) {
+        subthd_create_next_pool();
+    }
 
-    struct cache_part* newpt = snew(struct cache_part);
-    newpt->data = newcache;
-    newpt->len = len;
-
-    int next_room = i_cache == (cache_count - 1) ? 0 : (i_cache + 1);
-    cache[next_room] = newpt;
-    i_cache = next_room;
+    pool_push(cache[i_cache], data, len);
 }
 
 void subthd_back_special(Telnet_Special s)
@@ -68,7 +93,10 @@ void subthd_back_special(Telnet_Special s)
 
 void subthd_back_flush()
 {
-    while (i_sent != i_cache) 
+    if (i_cache == -1) return;  // nothing sent yet.
+    if (pool_len(cache[i_cache]) > 0) subthd_create_next_pool();
+
+    while (i_sent != i_to_send) 
         subthd_sleep(10);
 }
 
@@ -83,15 +111,24 @@ int subthd_back_flush_2()
         cache_sp = -1;
     }
 
-    if (!back->sendbuffer(backhandle) && i_sent != i_cache) {
+    if (!back->sendbuffer(backhandle) && i_sent != i_to_send) {
         int next_sent = i_sent == (cache_count - 1) ? 0 : (i_sent + 1);
-        struct cache_part *cp = cache[next_sent];
-        back->send(backhandle, cp->data, cp->len);
-        sfree(cp->data);
-        sfree(cp);
+        pool_t *cp = cache[next_sent];
+        back->send(backhandle, cp->data, pool_len(cp));
+        pool_reset(cp);
         i_sent = next_sent;
     }
 
+    return 1;
+}
+
+int subthd_back_wait(int len, int timeout)
+{
+    time_t until = time(NULL) + timeout;
+    while (subthd_back_read_buflen() < len) {
+        if (time(NULL) > until) return 0;
+        subthd_sleep(10);
+    }
     return 1;
 }
 
