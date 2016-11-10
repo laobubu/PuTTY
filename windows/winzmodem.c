@@ -166,8 +166,8 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
 
     char *fail_info = NULL;
     char *filename_base = strrchr(fn, PATH_SEPARATOR) + 1;
-    const int block_size = (1024 * 32) * 3; //FIXME: Too big blocks may cause SSH problem (ssh.c:1728)
-    const int line_break = 128;  // *4 chars per line. bash cuts long lines :(
+    const int block_size = (1024 * 16) * 3; //FIXME: Too big blocks may cause SSH problem (ssh.c:1728)
+    const int line_break = 256;  // *4 chars per line. bash cuts long lines :(
 
     size_t len;
     long fsize, linecnt;
@@ -191,28 +191,37 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
     tputs(" stty -echo;\n");
     subthd_back_flush();
 
+	subthd_back_wait(2, 15);
+
     tputs(" AZps1=$PS1; AZhc1=$HISTCONTROL; PS1='&'; HISTCONTROL=ignorespace; \n");
     tputs(" read AZfn1 && rm -rf \"$AZfn1\" \n");
     subthd_back_read_empty_buf();
     subthd_back_flush();
 
     while (1) {
-        if (!subthd_back_wait(1, 5)) failed("Timeout before FILENAME");
+        if (!subthd_back_wait(1, 10)) failed("Timeout before FILENAME");
         subthd_back_read(buf, 1); if (*buf == '&') break;
     }
     tputs(filename_base); tputs("\n");
     subthd_back_flush();
 
     while (1) {
-        if (!subthd_back_wait(1, 5)) failed("Timeout after FILENAME");
+        if (!subthd_back_wait(1, 10)) failed("Timeout after FILENAME");
         subthd_back_read(buf, 1); if (*buf == '&') break;
     }
     tputs("\n AZupl () { printf '\\r\\x8\\r@@@'; base64 -d >>\"$AZfn1\" ; } \n");
+	subthd_back_read_empty_buf();
+	subthd_back_flush();
 
     while (!feof(fp)) {
         unsigned char *readtmp = (unsigned char*)buf;
 
         // start a transfer
+
+		while (1) {
+			if (!subthd_back_wait(1, 30)) failed("Timeout before starting a block");
+			subthd_back_read(buf, 1); if (*buf == '&') break;
+		}
         
         tputs(" AZupl \n");
         subthd_back_read_empty_buf();
@@ -222,7 +231,7 @@ static void xyz_sendFileWithXxd(Terminal *term, char* fn)
 
         int at_striking = 0;
         while (1) {
-            if (!subthd_back_wait(1, 5)) failed("Timeout before block");
+            if (!subthd_back_wait(1, 30)) failed("Timeout before block");
             subthd_back_read(buf, 1);
             if (*buf == '@') { if (++at_striking == 3) break; }
             else at_striking = 0;
@@ -281,6 +290,7 @@ final_step:
     memset(sendtmp, 8, slen);
     from_backend(term, 1, sendtmp, slen * 2);
 
+    tputs("\x3\x3");
     tputs(" PS1=$AZps1; HISTCONTROL=$AZhc1; printf \"\\r\"; stty echo; \n");
     subthd_back_flush();
     fclose(fp);

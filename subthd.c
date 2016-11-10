@@ -18,7 +18,7 @@ void pool_init(pool_t *p, int cap) { p->data = p->ptr = smalloc(cap); p->cap = c
 int pool_capable(pool_t *p, int len) { return p->ptr - p->data <= p->cap - len; }   // check if there is enough space
 void pool_push(pool_t *p, void* data, int len) { memcpy(p->ptr, data, len); p->ptr += len; }
 void pool_reset(pool_t *p) { p->ptr = p->data; }
-void pool_free(pool_t *p) { sfree(p->data); }
+void pool_free(pool_t *p) { sfree(p->data); sfree(p); }
 int pool_len(pool_t *p) { return p->ptr - p->data; }
 
 int i_sent = 0, i_to_send = 0, i_cache = -1; 
