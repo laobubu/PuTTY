@@ -5963,7 +5963,8 @@ void term_do_paste(Terminal *term)
 // remember to call sfree(filelist)
 void term_drop(Terminal *term, char* filelist, int x, int y)
 {
-    message_box(filelist, "drop files", 0, 0);
+	void sendfile_start(char* list);
+	sendfile_start(filelist);
     
     sfree(filelist);
 }
