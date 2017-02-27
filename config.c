@@ -1706,6 +1706,10 @@ void setup_config_box(struct controlbox *b, int midsession,
 		  HELPCTX(features_retitle),
 		  conf_checkbox_handler,
 		  I(CONF_no_remote_wintitle));
+    ctrl_checkbox(s, "Disable remote-controlled clearing of scrollback", 'e',
+		  HELPCTX(features_clearscroll),
+		  conf_checkbox_handler,
+		  I(CONF_no_remote_clearscroll));
     ctrl_radiobuttons(s, "Response to remote title query (SECURITY):", 'q', 3,
 		      HELPCTX(features_qtitle),
 		      conf_radiobutton_handler,
@@ -2134,7 +2138,7 @@ void setup_config_box(struct controlbox *b, int midsession,
 
 	ctrl_radiobuttons(s, "Print proxy diagnostics "
                           "in the terminal window", 'r', 5,
-			  HELPCTX(proxy_main),
+			  HELPCTX(proxy_logging),
 			  conf_radiobutton_handler,
 			  I(CONF_proxy_log_to_term),
 			  "No", I(FORCE_OFF),

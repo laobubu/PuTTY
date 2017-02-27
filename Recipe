@@ -12,6 +12,7 @@
 # Overall project name.
 !name putty
 # Locations and types of output Makefiles.
+!makefile clangcl windows/Makefile.clangcl
 !makefile vc windows/Makefile.vc
 !makefile vcproj windows/MSVC
 !makefile cygwin windows/Makefile.mgw
@@ -54,8 +55,7 @@
 #         security grounds (although it will run fine on Win95-series
 #         OSes where there is no access control anyway).
 #       - SSH connection sharing is disabled.
-#       - There is no restriction of the process ACLs (on all versions
-#         of Windows, without warning), as if UNPROTECT below were set.
+#       - There is no support for restriction of the process ACLs.
 #
 #  - COMPAT=/DNO_MULTIMON (Windows only)
 #      Disables PuTTY's use of <multimon.h>, which is not available
@@ -108,10 +108,6 @@
 #  - XFLAGS=/DDEBUG
 #      Causes PuTTY to enable internal debugging.
 #
-#  - XFLAGS=/DUNPROTECT
-#      Disable tightened ACL on PuTTY process so that e.g. debuggers
-#      can attach to it.
-#
 #  - XFLAGS=/DMALLOC_LOG
 #      Causes PuTTY to emit a file called putty_mem.log, logging every
 #      memory allocation and free, so you can track memory leaks.
@@ -134,8 +130,26 @@
 # ------------------------------------------------------------
 # Additional text added verbatim to each individual Makefile.
 
+!cflags am version
+!begin am
+if AUTO_GIT_COMMIT
+BUILT_SOURCES = empty.h
+CLEANFILES = empty.h
+libversion_a_CFLAGS += -DSOURCE_COMMIT=\"`git --git-dir=$(srcdir)/.git rev-parse HEAD 2>/dev/null`\"
+empty.h: $(allsources)
+	echo '/* Empty file touched by automake makefile to force rebuild of version.o */' >$@
+endif
+!end
+!begin >empty.h
+/* Empty file touched by automake makefile to force rebuild of version.o */
+!end
+
 !begin vc vars
 CFLAGS = $(CFLAGS) /DHAS_GSSAPI
+!end
+
+!begin clangcl vars
+CFLAGS += /DHAS_GSSAPI
 !end
 
 # `make install' target for Unix.
@@ -170,8 +184,12 @@ install-strip:
 
 # List the man pages for the automake makefile.
 !begin am
-man1_MANS = doc/plink.1 doc/pscp.1 doc/psftp.1 doc/pterm.1 \
-            doc/putty.1 doc/puttygen.1 doc/puttytel.1
+if HAVE_GTK
+man1_MANS = doc/plink.1 doc/pscp.1 doc/psftp.1 doc/puttygen.1 \
+	    doc/pageant.1 doc/pterm.1 doc/putty.1 doc/puttytel.1
+else
+man1_MANS = doc/plink.1 doc/pscp.1 doc/psftp.1 doc/puttygen.1
+endif
 !end
 
 # In automake, chgrp/chmod pterm after installation, if configured to.
@@ -230,7 +248,7 @@ NONSSH   = telnet raw rlogin ldisc pinger
 SSH      = ssh sshcrc sshdes sshmd5 sshrsa sshrand sshsha sshblowf
          + sshdh sshcrcda sshpubk sshzlib sshdss x11fwd portfwd
          + sshaes sshccp sshsh256 sshsh512 sshbn wildcard pinger ssharcf
-         + sshgssc pgssapi sshshare sshecc
+         + sshgssc pgssapi sshshare sshecc aqsync
 WINSSH   = SSH winnoise wincapi winpgntc wingss winshare winnps winnpc
          + winhsock errsock
 UXSSH    = SSH uxnoise uxagentc uxgss uxshare
@@ -285,7 +303,7 @@ psftp    : [C] psftp winsftp wincons WINSSH BE_SSH SFTP wildcard WINMISC
          + psftp.res winnojmp LIBS
 
 pageant  : [G] winpgnt pageant sshrsa sshpubk sshdes sshbn sshmd5 version
-	 + tree234 misc sshaes sshsha winsecur winpgntc sshdss sshsh256
+	 + tree234 misc sshaes sshsha winsecur winpgntc aqsync sshdss sshsh256
 	 + sshsh512 winutils sshecc winmisc winhelp conf pageant.res LIBS
 
 puttygen : [G] winpgen sshrsag sshdssg sshprime sshdes sshbn sshmd5 version
@@ -305,22 +323,22 @@ puttytel : [X] GTKTERM uxmisc misc ldisc settings uxsel U_BE_NOSSH
 	 + nogss gtkmain
 
 plink    : [U] uxplink uxcons NONSSH UXSSH U_BE_ALL logging UXMISC uxsignal
-         + ux_x11 noterm
+         + ux_x11 noterm uxnogtk
 
 PUTTYGEN_UNIX = sshrsag sshdssg sshprime sshdes sshbn sshmd5 version
          + sshrand uxnoise sshsha misc sshrsa sshdss uxcons uxstore uxmisc
          + sshpubk sshaes sshsh256 sshsh512 IMPORT puttygen.res time tree234
-         + uxgen notiming conf sshecc sshecdsag
+         + uxgen notiming conf sshecc sshecdsag uxnogtk
 puttygen : [U] cmdgen PUTTYGEN_UNIX
 cgtest   : [UT] cgtest PUTTYGEN_UNIX
 
-pscp     : [U] pscp uxsftp uxcons UXSSH BE_SSH SFTP wildcard UXMISC
-psftp    : [U] psftp uxsftp uxcons UXSSH BE_SSH SFTP wildcard UXMISC
+pscp     : [U] pscp uxsftp uxcons UXSSH BE_SSH SFTP wildcard UXMISC uxnogtk
+psftp    : [U] psftp uxsftp uxcons UXSSH BE_SSH SFTP wildcard UXMISC uxnogtk
 
-pageant  : [X] uxpgnt uxagentc pageant sshrsa sshpubk sshdes sshbn sshmd5
-	 + version tree234 misc sshaes sshsha sshdss sshsh256 sshsh512 sshecc
-	 + conf uxsignal nocproxy nogss be_none x11fwd ux_x11 uxcons gtkask
-	 + gtkmisc UXMISC
+pageant  : [X] uxpgnt uxagentc aqsync pageant sshrsa sshpubk sshdes sshbn
+	 + sshmd5 version tree234 misc sshaes sshsha sshdss sshsh256 sshsh512
+	 + sshecc conf uxsignal nocproxy nogss be_none x11fwd ux_x11 uxcons
+	 + gtkask gtkmisc UXMISC
 
 ptermapp : [XT] GTKTERM uxmisc misc ldisc settings uxpty uxsel BE_NONE uxstore
          + uxsignal CHARSET cmdline uxpterm version time xpmpterm xpmptcfg
@@ -330,10 +348,10 @@ puttyapp : [XT] GTKTERM uxmisc misc ldisc settings uxsel U_BE_ALL uxstore
          + xpmpucfg gtkapp
 osxlaunch : [UT] osxlaunch
 
-fuzzterm : [UT] UXTERM CHARSET misc uxmisc uxucs fuzzterm time settings
-	 + uxstore be_none
-testbn   : [UT] testbn sshbn misc conf tree234 uxmisc
-testbn   : [C] testbn sshbn misc conf tree234 winmisc LIBS
+fuzzterm : [UT] UXTERM CHARSET misc version uxmisc uxucs fuzzterm time settings
+	 + uxstore be_none uxnogtk
+testbn   : [UT] testbn sshbn misc version conf tree234 uxmisc uxnogtk
+testbn   : [C] testbn sshbn misc version conf tree234 winmisc LIBS
 
 # ----------------------------------------------------------------------
 # On Windows, provide a means of removing local test binaries that we
@@ -342,4 +360,8 @@ testbn   : [C] testbn sshbn misc conf tree234 winmisc LIBS
 !begin vc
 cleantestprogs:
 	-del $(BUILDDIR)testbn.exe
+!end
+!begin clangcl
+cleantestprogs:
+	-rm -f $(BUILDDIR)testbn.exe
 !end

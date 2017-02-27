@@ -383,6 +383,7 @@ static void do_cmd(char *host, char *user, char *cmd)
 	    /* Use `host' as a bare hostname. */
 	    conf_set_str(conf, CONF_host, host);
 	}
+        conf_free(conf2);
     } else {
 	/* Patch in hostname `host' to session details. */
 	conf_set_str(conf, CONF_host, host);
@@ -514,6 +515,11 @@ static void do_cmd(char *host, char *user, char *cmd)
 
     back = &ssh_backend;
 
+    logctx = log_init(NULL, conf);
+    console_provide_logctx(logctx);
+
+    platform_psftp_pre_conn_setup();
+
     err = back->init(NULL, &backhandle, conf,
 		     conf_get_str(conf, CONF_host),
 		     conf_get_int(conf, CONF_port),
@@ -521,9 +527,7 @@ static void do_cmd(char *host, char *user, char *cmd)
 		     conf_get_int(conf, CONF_tcp_keepalives));
     if (err != NULL)
 	bump("ssh_init: %s", err);
-    logctx = log_init(NULL, conf);
     back->provide_logctx(backhandle, logctx);
-    console_provide_logctx(logctx);
     ssh_scp_init();
     if (verbose && realhost != NULL && errs == 0)
 	tell_user(stderr, "Connected to %s", realhost);
@@ -695,7 +699,8 @@ void scp_sftp_listdir(const char *dirname)
     dirh = fxp_opendir_recv(pktin, req);
 
     if (dirh == NULL) {
-	printf("Unable to open %s: %s\n", dirname, fxp_error());
+		tell_user(stderr, "Unable to open %s: %s\n", dirname, fxp_error());
+		errs++;
     } else {
 	nnames = namesize = 0;
 	ournames = NULL;
@@ -1555,6 +1560,12 @@ int scp_recv_filedata(char *data, int len)
 	}
 
 	if (xfer_download_data(scp_sftp_xfer, &vbuf, &actuallen)) {
+            if (actuallen <= 0) {
+                tell_user(stderr, "pscp: end of file while reading");
+                errs++;
+                sfree(vbuf);
+                return -1;
+            }
 	    /*
 	     * This assertion relies on the fact that the natural
 	     * block size used in the xfer manager is at most that
@@ -1958,8 +1969,10 @@ static void sink(const char *targ, const char *src)
 	    read = scp_recv_filedata(transbuf, (int)blksize.lo);
 	    if (read <= 0)
 		bump("Lost connection");
-	    if (wrerror)
+	    if (wrerror) {
+                received = uint64_add32(received, read);
 		continue;
+            }
 	    if (write_to_file(f, transbuf, read) != (int)read) {
 		wrerror = 1;
 		/* FIXME: in sftp we can actually abort the transfer */
@@ -1967,6 +1980,7 @@ static void sink(const char *targ, const char *src)
 		    printf("\r%-25.25s | %50s\n",
 			   stat_name,
 			   "Write error.. waiting for end of file");
+                received = uint64_add32(received, read);
 		continue;
 	    }
 	    if (statistics) {
@@ -2241,6 +2255,8 @@ static void usage(void)
     printf("  -hostkey aa:bb:cc:...\n");
     printf("            manually specify a host key (may be repeated)\n");
     printf("  -batch    disable all interactive prompts\n");
+    printf("  -proxycmd command\n");
+    printf("            use 'command' as local proxy\n");
     printf("  -unsafe   allow server-side wildcards (DANGEROUS)\n");
     printf("  -sftp     force use of SFTP protocol\n");
     printf("  -scp      force use of SCP protocol\n");
@@ -2263,8 +2279,10 @@ static void usage(void)
 
 void version(void)
 {
-    printf("pscp: %s\n", ver);
-    cleanup_exit(1);
+    char *buildinfo_text = buildinfo("\n");
+    printf("pscp: %s\n%s\n", ver, buildinfo_text);
+    sfree(buildinfo_text);
+    exit(0);
 }
 
 void cmdline_error(const char *p, ...)
@@ -2353,8 +2371,6 @@ int psftp_main(int argc, char *argv[])
     argc -= i;
     argv += i;
     back = NULL;
-
-    platform_psftp_post_option_setup();
 
     if (list) {
 	if (argc != 1)

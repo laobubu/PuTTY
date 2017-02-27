@@ -152,10 +152,12 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
     switch (msg) {
       case WM_INITDIALOG:
         {
+            char *buildinfo_text = buildinfo("\r\n");
             char *text = dupprintf
-                ("Pageant\r\n\r\n%s\r\n\r\n%s",
-                 ver,
+                ("Pageant\r\n\r\n%s\r\n\r\n%s\r\n\r\n%s",
+                 ver, buildinfo_text,
                  "\251 " SHORT_COPYRIGHT_DETAILS ". All rights reserved.");
+            sfree(buildinfo_text);
             SetDlgItemText(hwnd, 1000, text);
             sfree(text);
         }
@@ -172,6 +174,12 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
 	    DialogBox(hinst, MAKEINTRESOURCE(214), hwnd, LicenceProc);
 	    EnableWindow(hwnd, 1);
 	    SetActiveWindow(hwnd);
+	    return 0;
+	  case 102:
+	    /* Load web browser */
+	    ShellExecute(hwnd, "open",
+			 "http://www.chiark.greenend.org.uk/~sgtatham/putty/",
+			 0, 0, SW_SHOWDEFAULT);
 	    return 0;
 	}
 	return 0;
@@ -1157,6 +1165,10 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 	if (!strcmp(argv[i], "-pgpfp")) {
 	    pgp_fingerprints();
 	    return 1;
+        } else if (!strcmp(argv[i], "-restrict-acl") ||
+                   !strcmp(argv[i], "-restrict_acl") ||
+                   !strcmp(argv[i], "-restrictacl")) {
+            restrict_process_acl();
 	} else if (!strcmp(argv[i], "-c")) {
 	    /*
 	     * If we see `-c', then the rest of the
@@ -1175,23 +1187,6 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 	    added_keys = TRUE;
 	}
     }
-
-#if !defined UNPROTECT && !defined NO_SECURITY
-    /*
-     * Protect our process.
-     */
-    {
-        char *error = NULL;
-        if (!setprocessacl(error)) {
-            char *message = dupprintf("Could not restrict process ACL: %s",
-                                      error);
-            MessageBox(NULL, message, "Pageant Warning",
-                       MB_ICONWARNING | MB_OK);
-            sfree(message);
-            sfree(error);
-        }
-    }
-#endif
 
     /*
      * Forget any passphrase that we retained while going over

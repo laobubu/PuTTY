@@ -68,16 +68,16 @@ if ($upload) {
     defined $version or die "use --version";
 
     # Run this inside the build.out directory.
-    -d "maps-x86" or die "no maps-x86 directory in cwd";
+    -d "maps" or die "no maps directory in cwd";
     -d "putty" or die "no putty directory in cwd";
 
-    0 == system("rsync", "-av", "maps-x86/",
-                "atreus:src/putty-local/maps-$version")
+    0 == system("rsync", "-av", "maps/",
+                "thyestes:src/putty-local/maps-$version")
         or die "could not upload link maps";
 
-    for my $location (["atreus", "www/putty/$version"],
-                      ["the",    "www/putty/$version"],
-                      ["chiark", "ftp/putty-$version"]) {
+    for my $location (["thyestes", "www/putty/$version"],
+                      ["the",      "www/putty/$version"],
+                      ["chiark",   "ftp/putty-$version"]) {
         my ($host, $path) = @$location;
         0 == system("rsync", "-av", "putty/", "$host:$path")
             or die "could not upload release to $host";
@@ -117,7 +117,7 @@ if ($precheck || $postcheck) {
     # downloaded files against the exact contents they should have.
     -d "putty" or die "no putty directory in cwd";
 
-    my $httpprefix = "http://the.earth.li/~sgtatham/putty/";
+    my $httpprefix = "https://the.earth.li/~sgtatham/putty/";
     my $ftpprefix = "ftp://ftp.chiark.greenend.org.uk/users/sgtatham/putty-";
 
     # Go through all the files in build.out.

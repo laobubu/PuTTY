@@ -33,6 +33,9 @@ int random_byte(void)
 
 #define fromxdigit(c) ( (c)>'9' ? ((c)&0xDF) - 'A' + 10 : (c) - '0' )
 
+/* For Unix in particular, but harmless if this main() is reused elsewhere */
+const int buildinfo_gtk_relevant = FALSE;
+
 int main(int argc, char **argv)
 {
     char *buf;
@@ -55,7 +58,7 @@ int main(int argc, char **argv)
 
         while (*bufp && !isspace((unsigned char)*bufp))
             bufp++;
-        if (bufp)
+        if (*bufp)
             *bufp++ = '\0';
 
         while (*bufp) {
@@ -82,8 +85,6 @@ int main(int argc, char **argv)
                 val = val * 16 + fromxdigit(start[i+1]);
                 *q++ = val;
             }
-
-            ptrs[ptrnum] = q;
         }
 
         if (!strcmp(buf, "mul")) {

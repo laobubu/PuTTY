@@ -136,13 +136,16 @@ static void usage(void)
     printf("  -D           delete all keys from the agent\n");
     printf("Other options:\n");
     printf("  -v           verbose mode (in agent mode)\n");
+    printf("  -s -c        force POSIX or C shell syntax (in agent mode)\n");
     exit(1);
 }
 
 static void version(void)
 {
-    printf("pageant: %s\n", ver);
-    exit(1);
+    char *buildinfo_text = buildinfo("\n");
+    printf("pageant: %s\n%s\n", ver, buildinfo_text);
+    sfree(buildinfo_text);
+    exit(0);
 }
 
 void keylist_update(void)
@@ -540,18 +543,19 @@ struct pageant_pubkey *find_key(const char *string, char **retstr)
                     filename_free(fn);
                     return NULL;
                 }
+            } else {
+                /*
+                 * If we've successfully loaded the file, stop here - we
+                 * already have a key blob and need not go to the agent to
+                 * list things.
+                 */
+                key_in.ssh_version = 1;
+                key_in.comment = NULL;
+                key_ret = pageant_pubkey_copy(&key_in);
+                sfree(key_in.blob);
+                filename_free(fn);
+                return key_ret;
             }
-
-            /*
-             * If we've successfully loaded the file, stop here - we
-             * already have a key blob and need not go to the agent to
-             * list things.
-             */
-            key_in.ssh_version = 1;
-            key_ret = pageant_pubkey_copy(&key_in);
-            sfree(key_in.blob);
-            filename_free(fn);
-            return key_ret;
         } else if (keytype == SSH_KEYTYPE_SSH2 ||
                    keytype == SSH_KEYTYPE_SSH2_PUBLIC_RFC4716 ||
                    keytype == SSH_KEYTYPE_SSH2_PUBLIC_OPENSSH) {
@@ -566,18 +570,19 @@ struct pageant_pubkey *find_key(const char *string, char **retstr)
                     filename_free(fn);
                     return NULL;
                 }
+            } else {
+                /*
+                 * If we've successfully loaded the file, stop here - we
+                 * already have a key blob and need not go to the agent to
+                 * list things.
+                 */
+                key_in.ssh_version = 2;
+                key_in.comment = NULL;
+                key_ret = pageant_pubkey_copy(&key_in);
+                sfree(key_in.blob);
+                filename_free(fn);
+                return key_ret;
             }
-
-            /*
-             * If we've successfully loaded the file, stop here - we
-             * already have a key blob and need not go to the agent to
-             * list things.
-             */
-            key_in.ssh_version = 2;
-            key_ret = pageant_pubkey_copy(&key_in);
-            sfree(key_in.blob);
-            filename_free(fn);
-            return key_ret;
         } else {
             if (file_errors) {
                 *retstr = dupprintf("unable to load key file '%s': %s",
@@ -975,6 +980,8 @@ void run_agent(void)
         fprintf(stderr, "pageant: %s: %s\n", socketname, strerror(errno));
         exit(1);
     }
+
+    conf_free(conf);
 }
 
 int main(int argc, char **argv)

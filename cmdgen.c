@@ -129,12 +129,14 @@ void sk_cleanup(void)
 
 void showversion(void)
 {
-    printf("puttygen: %s\n", ver);
+    char *buildinfo_text = buildinfo("\n");
+    printf("puttygen: %s\n%s\n", ver, buildinfo_text);
+    sfree(buildinfo_text);
 }
 
 void usage(int standalone)
 {
-    fprintf(stderr,
+    fprintf(standalone ? stderr : stdout,
 	    "Usage: puttygen ( keyfile | -t type [ -b bits ] )\n"
 	    "                [ -C comment ] [ -P ] [ -q ]\n"
 	    "                [ -o output-keyfile ] [ -O type | -l | -L"
@@ -150,35 +152,35 @@ void help(void)
      * Help message is an extended version of the usage message. So
      * start with that, plus a version heading.
      */
-    showversion();
+    printf("PuTTYgen: key generator and converter for the PuTTY tools\n"
+	   "%s\n", ver);
     usage(FALSE);
-    fprintf(stderr,
-	    "  -t    specify key type when generating (ed25519, ecdsa, rsa, "
+    printf("  -t    specify key type when generating (ed25519, ecdsa, rsa, "
 							"dsa, rsa1)\n"
-	    "  -b    specify number of bits when generating key\n"
-	    "  -C    change or specify key comment\n"
-	    "  -P    change key passphrase\n"
-	    "  -q    quiet: do not display progress bar\n"
-	    "  -O    specify output type:\n"
-	    "           private             output PuTTY private key format\n"
-	    "           private-openssh     export OpenSSH private key\n"
-	    "           private-openssh-new export OpenSSH private key "
-                                             "(force new file format)\n"
-	    "           private-sshcom      export ssh.com private key\n"
-	    "           public              RFC 4716 / ssh.com public key\n"
-	    "           public-openssh      OpenSSH public key\n"
-	    "           fingerprint         output the key fingerprint\n"
-	    "  -o    specify output file\n"
-	    "  -l    equivalent to `-O fingerprint'\n"
-	    "  -L    equivalent to `-O public-openssh'\n"
-	    "  -p    equivalent to `-O public'\n"
-	    "  --old-passphrase file\n"
-	    "        specify file containing old key passphrase\n"
-	    "  --new-passphrase file\n"
-	    "        specify file containing new key passphrase\n"
-	    "  --random-device device\n"
-	    "        specify device to read entropy from (e.g. /dev/urandom)\n"
-	    );
+	   "  -b    specify number of bits when generating key\n"
+	   "  -C    change or specify key comment\n"
+	   "  -P    change key passphrase\n"
+	   "  -q    quiet: do not display progress bar\n"
+	   "  -O    specify output type:\n"
+	   "           private             output PuTTY private key format\n"
+	   "           private-openssh     export OpenSSH private key\n"
+	   "           private-openssh-new export OpenSSH private key "
+                                             "(force new format)\n"
+	   "           private-sshcom      export ssh.com private key\n"
+	   "           public              RFC 4716 / ssh.com public key\n"
+	   "           public-openssh      OpenSSH public key\n"
+	   "           fingerprint         output the key fingerprint\n"
+	   "  -o    specify output file\n"
+	   "  -l    equivalent to `-O fingerprint'\n"
+	   "  -L    equivalent to `-O public-openssh'\n"
+	   "  -p    equivalent to `-O public'\n"
+	   "  --old-passphrase file\n"
+	   "        specify file containing old key passphrase\n"
+	   "  --new-passphrase file\n"
+	   "        specify file containing new key passphrase\n"
+	   "  --random-device device\n"
+	   "        specify device to read entropy from (e.g. /dev/urandom)\n"
+	   );
 }
 
 static int move(char *from, char *to)
@@ -224,6 +226,9 @@ static char *readpassphrase(const char *filename)
 }
 
 #define DEFAULT_RSADSA_BITS 2048
+
+/* For Unix in particular, but harmless if this main() is reused elsewhere */
+const int buildinfo_gtk_relevant = FALSE;
 
 int main(int argc, char **argv)
 {
@@ -1160,6 +1165,8 @@ void test(int retval, ...)
     } else {
 	passes++;
     }
+
+    sfree(argv);
 }
 
 void filecmp(char *file1, char *file2, char *fmt, ...)

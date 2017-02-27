@@ -297,10 +297,12 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
 	}
 
         {
+            char *buildinfo_text = buildinfo("\r\n");
             char *text = dupprintf
-                ("PuTTYgen\r\n\r\n%s\r\n\r\n%s",
-                 ver,
+                ("PuTTYgen\r\n\r\n%s\r\n\r\n%s\r\n\r\n%s",
+                 ver, buildinfo_text,
                  "\251 " SHORT_COPYRIGHT_DETAILS ". All rights reserved.");
+            sfree(buildinfo_text);
             SetDlgItemText(hwnd, 1000, text);
             sfree(text);
         }
@@ -316,6 +318,12 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
 	    DialogBox(hinst, MAKEINTRESOURCE(214), hwnd, LicenceProc);
 	    EnableWindow(hwnd, 1);
 	    SetActiveWindow(hwnd);
+	    return 0;
+	  case 102:
+	    /* Load web browser */
+	    ShellExecute(hwnd, "open",
+			 "http://www.chiark.greenend.org.uk/~sgtatham/putty/",
+			 0, 0, SW_SHOWDEFAULT);
 	    return 0;
 	}
 	return 0;
@@ -1515,7 +1523,7 @@ void cleanup_exit(int code)
 
 int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 {
-    int argc;
+    int argc, i;
     char **argv;
     int ret;
 
@@ -1532,35 +1540,23 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 
     split_into_argv(cmdline, &argc, &argv, NULL);
 
-    if (argc > 0) {
-	if (!strcmp(argv[0], "-pgpfp")) {
+    for (i = 0; i < argc; i++) {
+	if (!strcmp(argv[i], "-pgpfp")) {
 	    pgp_fingerprints();
-	    exit(1);
+	    return 1;
+        } else if (!strcmp(argv[i], "-restrict-acl") ||
+                   !strcmp(argv[i], "-restrict_acl") ||
+                   !strcmp(argv[i], "-restrictacl")) {
+            restrict_process_acl();
 	} else {
 	    /*
 	     * Assume the first argument to be a private key file, and
 	     * attempt to load it.
 	     */
-	    cmdline_keyfile = argv[0];
+	    cmdline_keyfile = argv[i];
+            break;
 	}
     }
-
-#if !defined UNPROTECT && !defined NO_SECURITY
-    /*
-     * Protect our process.
-     */
-    {
-        char *error = NULL;
-        if (!setprocessacl(error)) {
-            char *message = dupprintf("Could not restrict process ACL: %s",
-                                      error);
-            MessageBox(NULL, message, "PuTTYgen Warning",
-                       MB_ICONWARNING | MB_OK);
-            sfree(message);
-            sfree(error);
-        }
-    }
-#endif
 
     random_ref();
     ret = DialogBox(hinst, MAKEINTRESOURCE(201), NULL, MainDlgProc) != IDOK;
