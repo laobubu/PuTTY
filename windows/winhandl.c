@@ -563,6 +563,16 @@ HANDLE *handle_get_events(int *nevents)
 	}
     }
 
+    /*
+     * see subthd_knock() defined in winsubthd.c
+     */
+    extern HANDLE subthd_win_knock_sem;
+    extern HANDLE subthd_win_create_knock_sem();
+
+    size += sizeof(HANDLE);
+    ret = sresize(ret, size, HANDLE);
+    ret[n++] = subthd_win_knock_sem ? subthd_win_knock_sem : subthd_win_create_knock_sem();
+
     *nevents = n;
     return ret;
 }

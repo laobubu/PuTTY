@@ -24,6 +24,7 @@
 #include "storage.h"
 #include "win_res.h"
 #include "winsecur.h"
+#include "subthd.h"
 
 #ifndef NO_MULTIMON
 #include <multimon.h>
@@ -944,6 +945,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 	}
 
         run_toplevel_callbacks();
+
+		subthd_extra_loop_process();
     }
 
     finished:
@@ -5818,6 +5821,7 @@ void frontend_keypress(void *handle)
 
 int from_backend(void *frontend, int is_stderr, const char *data, int len)
 {
+	if (!is_stderr) subthd_back_on_data_internal(data, len);
     return term_data(term, is_stderr, data, len);
 }
 
