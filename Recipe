@@ -230,16 +230,18 @@ CFLAGS += -DWINVER=0x0500 -D_WIN32_WINDOWS=0x0410 -D_WIN32_WINNT=0x0500
 
 # Terminal emulator and its (platform-independent) dependencies.
 TERMINAL = terminal wcwidth ldiscucs logging tree234 minibidi
-         + config dialog conf
+         + config dialog conf subthd
 
 # GUI front end and terminal emulator (putty, puttytel).
 GUITERM  = TERMINAL window windlg winctrls sizetip winucs winprint
          + winutils wincfg sercfg winhelp winjump miscucs
+         + winsubthd
 
 # Same thing on Unix.
 UXTERM   = TERMINAL uxcfg sercfg uxucs uxprint timing callback miscucs
 GTKTERM  = UXTERM gtkwin gtkcfg gtkdlg gtkfont gtkcols gtkmisc xkeysym
 	 + x11misc gtkcomm
+	 + uxsubthd
 
 # Non-SSH back ends (putty, puttytel, plink).
 NONSSH   = telnet raw rlogin ldisc pinger
@@ -255,12 +257,6 @@ UXSSH    = SSH uxnoise uxagentc uxgss uxshare
 
 # SFTP implementation (pscp, psftp).
 SFTP     = sftp int64 logging
-
-# Sub-Thread
-
-SUBTHD    = subthd
-WINSUBTHD = SUBTHD winsubthd
-UXSUBTHD  = SUBTHD uxsubthd
 
 # Miscellaneous objects appearing in all the network utilities (not
 # Pageant or PuTTYgen).
@@ -300,7 +296,6 @@ U_BE_NOSSH = be_nos_s uxser nocproxy
 # X/GTK Unix app, [U] for command-line Unix app.
 
 putty    : [G] GUITERM NONSSH WINSSH W_BE_ALL WINMISC winx11 putty.res LIBS
-         + WINSUBTHD
 puttytel : [G] GUITERM NONSSH W_BE_NOSSH WINMISC puttytel.res nogss LIBS
 plink    : [C] winplink wincons NONSSH WINSSH W_BE_ALL logging WINMISC
          + winx11 plink.res winnojmp noterm LIBS
@@ -325,7 +320,6 @@ pterm    : [X] GTKTERM uxmisc misc ldisc settings uxpty uxsel BE_NONE uxstore
 putty    : [X] GTKTERM uxmisc misc ldisc settings uxsel U_BE_ALL uxstore
          + uxsignal CHARSET uxputty NONSSH UXSSH UXMISC ux_x11 xpmputty
          + xpmpucfg gtkmain
-         + UXSUBTHD
 puttytel : [X] GTKTERM uxmisc misc ldisc settings uxsel U_BE_NOSSH
 	 + uxstore uxsignal CHARSET uxputty NONSSH UXMISC xpmputty xpmpucfg
 	 + nogss gtkmain
