@@ -40,3 +40,20 @@ void subthd_free(struct subthd_tag** t)
     sfree(*t);
     *t = 0;
 }
+
+size_t subthd_ldisc_printf(char* s, ...)
+{
+#define BUFSIZE 1024
+	static char *buf = NULL;
+	int cnt;
+	va_list argptr;
+	if (!buf) buf = malloc(BUFSIZE);
+
+	va_start(argptr, s);
+	cnt = vsprintf(buf, s, argptr);
+	va_end(argptr);
+
+	subthd_ldisc_write(buf, cnt);
+	return cnt;
+#undef BUFSIZE
+}

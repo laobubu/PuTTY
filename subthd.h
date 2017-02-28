@@ -28,7 +28,7 @@ struct subthd_tag {
 
 // methods for sub-threads. some methods block the sub-threads.
 
-
+size_t subthd_ldisc_printf(char*, ...); // write string to ldisc. non-block.
 
 // methods for PuTTY main thread.
 
@@ -69,13 +69,20 @@ void subthd_sem_wait(subthd_sem_t *sem);
 int subthd_sem_trywait(subthd_sem_t *sem); // non-zero if success
 
 // for subthread:
+// communicate with ldisc
+
+size_t subthd_ldisc_write(char*, const size_t); // write data to ldisc. non-block.
+
 // communicate with backend
 
 size_t subthd_back_write(char*, const size_t); // write data to remote. non-block.
+void subthd_back_write_special(Telnet_Special); // blocking send special
+void subthd_back_flush();
 
 subthd_back_read_handle subthd_back_read_open(); // open a buffer to read from backend.
 size_t subthd_back_read_read(subthd_back_read_handle, char*, const size_t);
 size_t subthd_back_read_peek(subthd_back_read_handle); // find how many bytes available
+int subthd_back_read_select(subthd_back_read_handle, int timeout_ms); // wait and return non-zero if get bytes available
 void subthd_back_read_close(subthd_back_read_handle);
 
 void subthd_back_on_data_internal(char*, size_t);

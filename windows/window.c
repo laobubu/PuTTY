@@ -908,7 +908,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 	n = MsgWaitForMultipleObjects(nhandles, handles, FALSE,
                                       timeout, QS_ALLINPUT);
 
-	if ((unsigned)(n - WAIT_OBJECT_0) < (unsigned)nhandles) {
+	if ((unsigned)(n - WAIT_OBJECT_0) < ((unsigned)nhandles - 1)) { // the last one is subthd's
 	    handle_got_event(handles[n - WAIT_OBJECT_0]);
 	    sfree(handles);
 	} else

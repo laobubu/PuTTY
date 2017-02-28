@@ -11,27 +11,84 @@
 #include "ldisc.h"
 #include "terminal.h"
 
-static HANDLE thd2backend_r = NULL, thd2backend_w = NULL; // pipe
+// create pipe
+static BOOL createAnonymousPipe(HANDLE *r, HANDLE *w)
+{
+	SECURITY_ATTRIBUTES saAttr;
+	saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
+	saAttr.bInheritHandle = TRUE;
+	saAttr.lpSecurityDescriptor = NULL;
+
+	return CreatePipe(r, w, &saAttr, 0xFFFF); //FIXME: TBD: buffer size enough? flush data?
+}
+
+// write things to ldisc (display)
+
+static HANDLE thd2ldisc_r = NULL, thd2ldisc_w = NULL; // pipe
+size_t subthd_ldisc_write(char* data, const size_t len)
+{
+	long bytesLeft = len;
+	size_t written;
+
+	if (!thd2ldisc_r) createAnonymousPipe(&thd2ldisc_r, &thd2ldisc_w);
+
+	while (bytesLeft > 0) {
+		subthd_knock();
+		WriteFile(thd2ldisc_w, data, len, &written, NULL);
+		bytesLeft -= written;
+	}
+
+	return len;
+}
 
 // communicate with remote
 
+static HANDLE thd2backend_r = NULL, thd2backend_w = NULL; // pipe
+static struct {
+	subthd_mutex_t *sending;
+	subthd_sem_t *tobesent, *sent;
+	Telnet_Special data;
+} thd2backed_special = { NULL };
+
 size_t subthd_back_write(char* data, const size_t len)
 {
-    SECURITY_ATTRIBUTES saAttr;
+	long bytesLeft = len;
+	size_t written;
 
-    if (!thd2backend_r) {
-        saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
-        saAttr.bInheritHandle = TRUE;
-        saAttr.lpSecurityDescriptor = NULL;
+	if (!thd2backend_r) createAnonymousPipe(&thd2backend_r, &thd2backend_w);
 
-        CreatePipe(&thd2backend_r, &thd2backend_w, &saAttr, 0xFFFF); //FIXME: TBD: buffer size enough? flush data?
-    }
+	while (bytesLeft > 0) {
+		subthd_knock();
+		WriteFile(thd2backend_w, data, len, &written, NULL);
+		bytesLeft -= written;
+	}
 
-    size_t written;
-    WriteFile(thd2backend_w, data, len, &written, NULL);
-    if (written) subthd_knock();
+	subthd_knock();
 
-    return written;
+    return len;
+}
+
+void subthd_back_write_special(Telnet_Special s)
+{
+	subthd_mutex_lock(thd2backed_special.sending, -1);
+
+	thd2backed_special.data = s;
+	subthd_sem_post(thd2backed_special.tobesent);
+	subthd_sem_wait(thd2backed_special.sent);
+	subthd_knock();
+
+	subthd_mutex_unlock(thd2backed_special.sending);
+}
+
+void subthd_back_flush()
+{
+	BOOL size_read;
+	DWORD bytesAvail;
+	subthd_knock();
+	while (1) {
+		size_read = PeekNamedPipe(thd2backend_r, NULL, 0, NULL, &bytesAvail, NULL);
+		if (!size_read || !bytesAvail) return;
+	}
 }
 
 typedef struct HANDLE_CHAIN_tag {
@@ -59,10 +116,11 @@ subthd_back_read_handle subthd_back_read_open() // open a buffer to read from ba
     saAttr.bInheritHandle = TRUE;
     saAttr.lpSecurityDescriptor = NULL;
 
-    fin->next = n;
     n->prev = fin;
     n->next = NULL;
     CreatePipe(&n->r, &n->w, &saAttr, 0xFFFF); //FIXME: TBD 0xFFFF
+
+	fin->next = n;
 
     return (subthd_back_read_handle)n;
 }
@@ -94,6 +152,20 @@ size_t subthd_back_read_peek(subthd_back_read_handle h1)
     return bytesAvail;
 }
 
+int subthd_back_read_select(subthd_back_read_handle h1, int timeout_ms)
+{
+	HANDLE_CHAIN *h = (HANDLE_CHAIN*)h1;
+	DWORD bytesAvail = 0;
+	BOOL success = 0;
+	clock_t untilClock = clock() + timeout_ms * CLOCKS_PER_SEC / 1000;
+	// Windows doesn't support Wait for Pipes.
+	while (clock() < untilClock) {
+		success = PeekNamedPipe(h->r, NULL, 0, NULL, &bytesAvail, NULL);
+		if (success && bytesAvail) return bytesAvail;
+	}
+	return 0;
+}
+
 void subthd_extra_loop_process_phase2() 
 {
     Ldisc ldisc = ((Ldisc)term->ldisc);
@@ -102,27 +174,58 @@ void subthd_extra_loop_process_phase2()
     Backend *back = ldisc->back;
     void *backhandle = ldisc->backhandle;
 
-#define BUFSIZE 2048
+	// sending special
+
+	if (!thd2backed_special.sending)
+	{
+		// init
+		thd2backed_special.sending = subthd_mutex_create("SubThd Sending Special Mutex");
+		thd2backed_special.tobesent = subthd_sem_create("SubThd Sending Special has data to be sent");
+		thd2backed_special.sent = subthd_sem_create("SubThd Sending Special data sent");
+	}
+	else if (subthd_sem_trywait(thd2backed_special.tobesent))
+	{
+		// get data to be sent
+		back->special(backhandle, thd2backed_special.data);
+		subthd_sem_post(thd2backed_special.sent);
+	}
+
+#define BUFSIZE 4096 //TBD
     DWORD size_read = 0, bytesAvail = 0;
+	long gotData = 0;
     static char* buf = NULL;
     if (buf == NULL) buf = malloc(BUFSIZE);
 
-    PeekNamedPipe(thd2backend_r, NULL, 0, NULL, &bytesAvail, NULL);
+	// sending data to backend
 
-    if (bytesAvail) {
-        while (bytesAvail) {
-            size_read = 0;
-            ReadFile(thd2backend_r, buf, BUFSIZE, &size_read, NULL);
-            if (!size_read) break;
-            bytesAvail -= size_read;
+	while (1) {
+		size_read = PeekNamedPipe(thd2backend_r, NULL, 0, NULL, &bytesAvail, NULL);
+		if (size_read && bytesAvail) {
+			if (bytesAvail > BUFSIZE)
+				bytesAvail = BUFSIZE;
+			size_read = 0;
+			ReadFile(thd2backend_r, buf, bytesAvail, &size_read, NULL);
+			gotData += size_read;
+			if (size_read) back->send(backhandle, buf, size_read);
+		} else {
+			break;
+		}
+	}
 
-            back->send(backhandle, buf, size_read);
-        }
-        back->sendbuffer(backhandle);
-    }
+	// sending data to ldisc
+
+	while (1) {
+		size_read = PeekNamedPipe(thd2ldisc_r, NULL, 0, NULL, &bytesAvail, NULL);
+		if (size_read && bytesAvail) {
+			char *buf2 = malloc(bytesAvail);
+			ReadFile(thd2ldisc_r, buf2, bytesAvail, &size_read, NULL);
+			if (size_read) from_backend(ldisc->frontend, 0, buf2, size_read);
+		} else {
+			break;
+		}
+	}
+
 #undef BUFSIZE
-
-    
 }
 
 HANDLE subthd_win_knock_sem = NULL;
@@ -230,7 +333,7 @@ int subthd_sem_trywait(subthd_sem_t *sem)
 // subthread knocks main thread's door, breaking main thread's idle status
 
 HANDLE subthd_win_create_knock_sem() {
-    return subthd_win_knock_sem = CreateSemaphore(NULL, 0, 16, "SubThread Knock Semaphore of PuTTY");
+    return subthd_win_knock_sem = CreateSemaphore(NULL, 0, 4, "SubThread Knock Semaphore of PuTTY");
 }
 
 void subthd_knock()
